@@ -5,7 +5,9 @@ import com.gec.backend.admin.dto.EmergencyActivityPoint;
 import com.gec.backend.admin.security.AdminScopeService;
 import com.gec.backend.agency.repository.AgencyRepository;
 import com.gec.backend.report.repository.IncidentReportRepository;
+import com.gec.backend.report.repository.ReportAssignmentRepository;
 import com.gec.backend.station.repository.StationRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -19,11 +21,17 @@ class DashboardAnalyticsServiceTest {
     private final AgencyRepository agencyRepository = Mockito.mock(AgencyRepository.class);
     private final StationRepository stationRepository = Mockito.mock(StationRepository.class);
     private final IncidentReportRepository reportRepository = Mockito.mock(IncidentReportRepository.class);
+    private final ReportAssignmentRepository assignmentRepository = Mockito.mock(ReportAssignmentRepository.class);
     private final AdminScopeService scopeService = Mockito.mock(AdminScopeService.class);
 
     private final DashboardAnalyticsService analyticsService = new DashboardAnalyticsService(
-        agencyRepository, stationRepository, reportRepository, scopeService
+        agencyRepository, stationRepository, reportRepository, assignmentRepository, scopeService
     );
+
+    @BeforeEach
+    void setUp() {
+        given(scopeService.isSystemAdmin()).willReturn(true);
+    }
 
     @Test
     void getSummary_returnsAggregatedCounts() {

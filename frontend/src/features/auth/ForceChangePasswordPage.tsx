@@ -15,6 +15,7 @@ import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import LockResetIcon from '@mui/icons-material/LockReset';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { authApi } from '@/api/authApi';
 import { useAuthStore } from '@/auth/useAuthStore';
 
@@ -27,7 +28,8 @@ export const ForceChangePasswordPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const navigate = useNavigate();
-  const { user } = useAuthStore();
+  const queryClient = useQueryClient();
+  const { user, logout } = useAuthStore();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,8 +48,15 @@ export const ForceChangePasswordPage: React.FC = () => {
     setIsSubmitting(true);
     try {
       await authApi.changePassword({ currentPassword: oldPassword, newPassword });
-      alert('Password changed successfully! Welcome to Ghana Emergency Connect.');
-      navigate('/');
+      try {
+        await authApi.logout();
+      } catch (ignored) {}
+
+      logout();
+      queryClient.clear();
+
+      alert('Password Changed Successfully! Please sign in with your new password.');
+      navigate('/login', { replace: true });
     } catch (err: any) {
       setErrorMessage(err.response?.data?.message || 'Failed to change password. Please check your temporary password.');
     } finally {

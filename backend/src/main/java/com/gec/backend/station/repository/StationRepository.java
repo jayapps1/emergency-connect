@@ -11,6 +11,7 @@ import java.util.UUID;
 public interface StationRepository extends JpaRepository<StationEntity, UUID> {
     List<StationEntity> findByAgencyIdAndActiveTrueAndVerifiedTrue(UUID agencyId);
     Optional<StationEntity> findByIdAndActiveTrueAndVerifiedTrue(UUID id);
+    List<StationEntity> findByAgencyId(UUID agencyId);
     Page<StationEntity> findByAgencyId(UUID agencyId, Pageable pageable);
     List<StationEntity> findByNameContainingIgnoreCaseOrCodeContainingIgnoreCase(String name, String code);
 }

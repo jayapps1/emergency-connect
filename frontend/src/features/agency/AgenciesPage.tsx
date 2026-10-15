@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Alert,
   Box,
   Button,
   Card,
@@ -44,9 +45,11 @@ export const AgenciesPage: React.FC = () => {
   const [emergencyNumber, setEmergencyNumber] = useState('');
 
   const queryClient = useQueryClient();
-  const { hasPermission } = useAuthStore();
+  const { hasRole, hasPermission } = useAuthStore();
 
-  const { data: agencies, isLoading } = useQuery({
+  const isSysAdmin = hasRole('SYSTEM_ADMIN');
+
+  const { data: agencies, isLoading, isError, error } = useQuery({
     queryKey: ['agencies'],
     queryFn: agencyApi.getAgencies,
   });
@@ -125,38 +128,46 @@ export const AgenciesPage: React.FC = () => {
       <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <Typography variant="h4" fontWeight="bold" gutterBottom>
-            Emergency Agencies
+            {isSysAdmin ? 'Emergency Response Agencies' : 'My Emergency Agency'}
           </Typography>
           <Typography variant="body1" color="text.secondary">
-            Verified public emergency response agencies
+            {isSysAdmin ? 'Verified public emergency response agencies' : 'Your assigned public emergency response agency'}
           </Typography>
         </div>
 
-        {hasPermission('AGENCY_CREATE') && (
+        {hasPermission('AGENCY_CREATE') && isSysAdmin && (
           <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenCreate}>
             New Agency
           </Button>
         )}
       </Box>
 
-      <Card sx={{ mb: 3 }}>
-        <CardContent sx={{ p: 2 }}>
-          <TextField
-            placeholder="Search agencies by name or code..."
-            size="small"
-            fullWidth
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon />
-                </InputAdornment>
-              ),
-            }}
-          />
-        </CardContent>
-      </Card>
+      {isError && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {(error as any)?.response?.data?.message || 'Access Denied: The requested agency resource is outside your authorized scope.'}
+        </Alert>
+      )}
+
+      {isSysAdmin && (agencies || []).length > 1 && (
+        <Card sx={{ mb: 3 }}>
+          <CardContent sx={{ p: 2 }}>
+            <TextField
+              placeholder="Search agencies by name or code..."
+              size="small"
+              fullWidth
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon />
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardContent sx={{ p: 0 }}>
@@ -172,7 +183,7 @@ export const AgenciesPage: React.FC = () => {
                     <TableCell>Code</TableCell>
                     <TableCell>Agency Name</TableCell>
                     <TableCell>Type</TableCell>
-                    <TableCell>Emergency Number</TableCell>
+                    <TableCell>Emergency Shortcode</TableCell>
                     <TableCell>Verified Status</TableCell>
                     <TableCell>Active</TableCell>
                     <TableCell align="right">Actions</TableCell>
@@ -182,7 +193,7 @@ export const AgenciesPage: React.FC = () => {
                   {filteredAgencies.map((agency) => (
                     <TableRow key={agency.id} hover>
                       <TableCell sx={{ fontWeight: 'bold' }}>{agency.code}</TableCell>
-                      <TableCell>{agency.name}</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>{agency.name}</TableCell>
                       <TableCell>
                         <Chip label={agency.type} size="small" variant="outlined" />
                       </TableCell>
@@ -209,13 +220,13 @@ export const AgenciesPage: React.FC = () => {
                         <Switch
                           checked={agency.active}
                           onChange={() => toggleStatusMutation.mutate(agency.id)}
-                          disabled={!hasPermission('AGENCY_UPDATE')}
+                          disabled={!hasPermission('AGENCY_UPDATE') || !isSysAdmin}
                           size="small"
                         />
                       </TableCell>
                       <TableCell align="right">
                         <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-                          {!agency.verified && hasPermission('AGENCY_VERIFY') && (
+                          {!agency.verified && hasPermission('AGENCY_VERIFY') && isSysAdmin && (
                             <Button
                               size="small"
                               variant="outlined"
@@ -235,10 +246,10 @@ export const AgenciesPage: React.FC = () => {
                       </TableCell>
                     </TableRow>
                   ))}
-                  {filteredAgencies.length === 0 && (
+                  {filteredAgencies.length === 0 && !isLoading && (
                     <TableRow>
                       <TableCell colSpan={7} align="center" sx={{ py: 3 }}>
-                        No agencies found.
+                        No agency details found or no agency is assigned to your account.
                       </TableCell>
                     </TableRow>
                   )}

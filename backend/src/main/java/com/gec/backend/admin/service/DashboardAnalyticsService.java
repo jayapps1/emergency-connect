@@ -3,11 +3,14 @@ package com.gec.backend.admin.service;
 import com.gec.backend.admin.dto.DashboardSummaryResponse;
 import com.gec.backend.admin.dto.EmergencyActivityPoint;
 import com.gec.backend.admin.security.AdminScopeService;
+import com.gec.backend.agency.entity.AgencyEntity;
 import com.gec.backend.agency.repository.AgencyRepository;
 import com.gec.backend.report.entity.IncidentReportEntity;
 import com.gec.backend.report.entity.IncidentSeverity;
+import com.gec.backend.report.entity.ReportAssignmentEntity;
 import com.gec.backend.report.entity.ReportStatus;
 import com.gec.backend.report.repository.IncidentReportRepository;
+import com.gec.backend.report.repository.ReportAssignmentRepository;
 import com.gec.backend.station.repository.StationRepository;
 import org.springframework.stereotype.Service;
 
@@ -15,6 +18,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class DashboardAnalyticsService {
@@ -22,30 +26,55 @@ public class DashboardAnalyticsService {
     private final AgencyRepository agencyRepository;
     private final StationRepository stationRepository;
     private final IncidentReportRepository reportRepository;
+    private final ReportAssignmentRepository assignmentRepository;
     private final AdminScopeService scopeService;
 
     public DashboardAnalyticsService(
         AgencyRepository agencyRepository,
         StationRepository stationRepository,
         IncidentReportRepository reportRepository,
+        ReportAssignmentRepository assignmentRepository,
         AdminScopeService scopeService
     ) {
         this.agencyRepository = agencyRepository;
         this.stationRepository = stationRepository;
         this.reportRepository = reportRepository;
+        this.assignmentRepository = assignmentRepository;
         this.scopeService = scopeService;
     }
 
     public DashboardSummaryResponse getSummary() {
-        long totalAgencies = agencyRepository.count();
-        long activeStations = stationRepository.count();
-        List<IncidentReportEntity> allReports = reportRepository.findAll();
+        long totalAgencies = scopeService.isSystemAdmin() ? agencyRepository.count() : 1L;
+        long activeStations;
+        List<IncidentReportEntity> scopedReports;
+
+        if (scopeService.isSystemAdmin()) {
+            activeStations = stationRepository.count();
+            scopedReports = reportRepository.findAll();
+        } else {
+            UUID agencyId = scopeService.getCurrentPrincipal().getAgencyId();
+            if (agencyId == null) {
+                return new DashboardSummaryResponse(0, 0, 0, 0, 0, 0);
+            }
+            activeStations = stationRepository.findByAgencyId(agencyId).size();
+
+            AgencyEntity agency = agencyRepository.findById(agencyId).orElse(null);
+            if (agency == null) {
+                scopedReports = List.of();
+            } else {
+                Set<UUID> reportIds = assignmentRepository.findByAgencyType(agency.getType())
+                    .stream()
+                    .map(ReportAssignmentEntity::getReportId)
+                    .collect(Collectors.toSet());
+                scopedReports = reportIds.isEmpty() ? List.of() : reportRepository.findAllById(reportIds);
+            }
+        }
 
         LocalDateTime startOfToday = LocalDate.now().atStartOfDay();
-        long reportsToday = allReports.stream().filter(r -> r.getCreatedAt().isAfter(startOfToday)).count();
-        long openIncidents = allReports.stream().filter(r -> r.getStatus() != ReportStatus.CLOSED && r.getStatus() != ReportStatus.RESOLVED && r.getStatus() != ReportStatus.REJECTED).count();
-        long criticalIncidents = allReports.stream().filter(r -> r.getSeverity() == IncidentSeverity.CRITICAL && r.getStatus() != ReportStatus.CLOSED).count();
-        long unacknowledged = allReports.stream().filter(r -> r.getStatus() == ReportStatus.SUBMITTED).count();
+        long reportsToday = scopedReports.stream().filter(r -> r.getCreatedAt().isAfter(startOfToday)).count();
+        long openIncidents = scopedReports.stream().filter(r -> r.getStatus() != ReportStatus.CLOSED && r.getStatus() != ReportStatus.RESOLVED && r.getStatus() != ReportStatus.REJECTED).count();
+        long criticalIncidents = scopedReports.stream().filter(r -> r.getSeverity() == IncidentSeverity.CRITICAL && r.getStatus() != ReportStatus.CLOSED).count();
+        long unacknowledged = scopedReports.stream().filter(r -> r.getStatus() == ReportStatus.SUBMITTED).count();
 
         return new DashboardSummaryResponse(
             totalAgencies,
@@ -58,7 +87,23 @@ public class DashboardAnalyticsService {
     }
 
     public List<EmergencyActivityPoint> getActivity(String period) {
-        List<IncidentReportEntity> reports = reportRepository.findAll();
+        List<IncidentReportEntity> reports;
+        if (scopeService.isSystemAdmin()) {
+            reports = reportRepository.findAll();
+        } else {
+            UUID agencyId = scopeService.getCurrentPrincipal().getAgencyId();
+            AgencyEntity agency = agencyId != null ? agencyRepository.findById(agencyId).orElse(null) : null;
+            if (agency == null) {
+                reports = List.of();
+            } else {
+                Set<UUID> reportIds = assignmentRepository.findByAgencyType(agency.getType())
+                    .stream()
+                    .map(ReportAssignmentEntity::getReportId)
+                    .collect(Collectors.toSet());
+                reports = reportIds.isEmpty() ? List.of() : reportRepository.findAllById(reportIds);
+            }
+        }
+
         List<EmergencyActivityPoint> points = new ArrayList<>();
 
         if ("24H".equalsIgnoreCase(period)) {
