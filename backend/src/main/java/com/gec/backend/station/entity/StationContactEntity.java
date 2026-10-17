@@ -17,6 +17,9 @@ public class StationContactEntity {
     @Column(name = "phone_number", nullable = false)
     private String phoneNumber;
 
+    @Column(name = "normalized_phone_number")
+    private String normalizedPhoneNumber;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "contact_type", nullable = false)
     private StationContactType contactType;
@@ -62,6 +65,8 @@ public class StationContactEntity {
     public void setStationId(UUID stationId) { this.stationId = stationId; }
     public String getPhoneNumber() { return phoneNumber; }
     public void setPhoneNumber(String phoneNumber) { this.phoneNumber = phoneNumber; }
+    public String getNormalizedPhoneNumber() { return normalizedPhoneNumber; }
+    public void setNormalizedPhoneNumber(String normalizedPhoneNumber) { this.normalizedPhoneNumber = normalizedPhoneNumber; }
     public StationContactType getContactType() { return contactType; }
     public void setContactType(StationContactType contactType) { this.contactType = contactType; }
     public int getPriority() { return priority; }

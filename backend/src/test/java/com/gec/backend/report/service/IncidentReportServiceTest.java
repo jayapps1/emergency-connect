@@ -1,6 +1,7 @@
 package com.gec.backend.report.service;
 
 import com.gec.backend.agency.entity.AgencyType;
+import com.gec.backend.agency.repository.AgencyRepository;
 import com.gec.backend.report.dto.*;
 import com.gec.backend.report.entity.*;
 import com.gec.backend.report.repository.*;
@@ -22,12 +23,18 @@ class IncidentReportServiceTest {
     private final IncidentReportRepository reportRepository = Mockito.mock(IncidentReportRepository.class);
     private final ReportAssignmentRepository assignmentRepository = Mockito.mock(ReportAssignmentRepository.class);
     private final ReportStatusHistoryRepository historyRepository = Mockito.mock(ReportStatusHistoryRepository.class);
+    private final ReportAttachmentRepository attachmentRepository = Mockito.mock(ReportAttachmentRepository.class);
+    private final ReportAttachmentStorageService attachmentStorageService = Mockito.mock(ReportAttachmentStorageService.class);
+    private final AgencyRepository agencyRepository = Mockito.mock(AgencyRepository.class);
 
     private final IncidentReportService reportService = new IncidentReportService(
         categoryRepository,
         reportRepository,
         assignmentRepository,
-        historyRepository
+        historyRepository,
+        attachmentRepository,
+        attachmentStorageService,
+        agencyRepository
     );
 
     @Test
@@ -35,7 +42,7 @@ class IncidentReportServiceTest {
         UUID categoryId = UUID.randomUUID();
         IncidentCategoryEntity category = new IncidentCategoryEntity(
             categoryId, "FIRE", "Fire Incident", "Fire emergency", IncidentSeverity.HIGH,
-            true, true, true, true, Set.of(AgencyType.FIRE, AgencyType.AMBULANCE)
+            true, false, true, 1, true, Set.of(AgencyType.FIRE, AgencyType.AMBULANCE)
         );
 
         given(categoryRepository.findByIdAndActiveTrue(categoryId)).willReturn(Optional.of(category));

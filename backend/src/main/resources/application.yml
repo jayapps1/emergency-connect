@@ -26,6 +26,7 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+    repair-before-migrate: true
 
 gec:
   bootstrap:

@@ -33,4 +33,9 @@ export const reportApi = {
     const res = await apiClient.post<AdminReportDetails>(`/api/v1/admin/reports/${reportId}/transfer`, data);
     return res.data;
   },
+
+  promptAgency: async (reportId: string, note?: string): Promise<AdminReportDetails> => {
+    const res = await apiClient.post<AdminReportDetails>(`/api/v1/admin/reports/${reportId}/prompt`, { note });
+    return res.data;
+  },
 };

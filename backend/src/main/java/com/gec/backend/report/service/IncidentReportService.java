@@ -1,18 +1,23 @@
 package com.gec.backend.report.service;
 
+import com.gec.backend.agency.entity.AgencyEntity;
 import com.gec.backend.agency.entity.AgencyType;
+import com.gec.backend.agency.repository.AgencyRepository;
 import com.gec.backend.common.exception.ResourceNotFoundException;
 import com.gec.backend.report.dto.*;
 import com.gec.backend.report.entity.*;
 import com.gec.backend.report.repository.*;
+import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
@@ -23,39 +28,52 @@ public class IncidentReportService {
     private final IncidentReportRepository reportRepository;
     private final ReportAssignmentRepository assignmentRepository;
     private final ReportStatusHistoryRepository historyRepository;
+    private final ReportAttachmentRepository attachmentRepository;
+    private final ReportAttachmentStorageService attachmentStorageService;
+    private final AgencyRepository agencyRepository;
     private final SecureRandom secureRandom = new SecureRandom();
 
     public IncidentReportService(
         IncidentCategoryRepository categoryRepository,
         IncidentReportRepository reportRepository,
         ReportAssignmentRepository assignmentRepository,
-        ReportStatusHistoryRepository historyRepository
+        ReportStatusHistoryRepository historyRepository,
+        ReportAttachmentRepository attachmentRepository,
+        ReportAttachmentStorageService attachmentStorageService,
+        AgencyRepository agencyRepository
     ) {
         this.categoryRepository = categoryRepository;
         this.reportRepository = reportRepository;
         this.assignmentRepository = assignmentRepository;
         this.historyRepository = historyRepository;
+        this.attachmentRepository = attachmentRepository;
+        this.attachmentStorageService = attachmentStorageService;
+        this.agencyRepository = agencyRepository;
     }
 
     public List<IncidentCategoryResponse> getCategories(ReportMode mode) {
-        return categoryRepository.findByActiveTrue()
-            .stream()
-            .filter(cat -> {
-                if (mode == null) return true;
-                return mode == ReportMode.SILENT ? cat.isSupportsSilent() : cat.isSupportsGeneral();
-            })
-            .map(cat -> new IncidentCategoryResponse(
-                cat.getId(),
-                cat.getCode(),
-                cat.getName(),
-                cat.getDescription(),
-                cat.getDefaultSeverity(),
-                cat.isSupportsSilent(),
-                cat.isSupportsGeneral(),
-                cat.isSupportsCall(),
-                cat.getDefaultAgencyTypes()
-            ))
-            .toList();
+        List<IncidentCategoryEntity> categories;
+        if (mode == ReportMode.SILENT) {
+            categories = categoryRepository.findByActiveTrueAndSupportsSilentTrueOrderByDisplayOrderAscNameAsc();
+        } else if (mode == ReportMode.GENERAL) {
+            categories = categoryRepository.findByActiveTrueAndSupportsGeneralTrueOrderByDisplayOrderAscNameAsc();
+        } else {
+            categories = categoryRepository.findByActiveTrueOrderByDisplayOrderAscNameAsc();
+        }
+
+        return categories.stream().map(cat -> new IncidentCategoryResponse(
+            cat.getId(),
+            cat.getCode(),
+            cat.getName(),
+            cat.getDescription(),
+            cat.getDefaultSeverity(),
+            cat.isSupportsSilent(),
+            cat.isSupportsGeneral(),
+            cat.isSupportsCall(),
+            cat.getDisplayOrder(),
+            cat.isActive(),
+            cat.getDefaultAgencyTypes()
+        )).toList();
     }
 
     @Transactional
@@ -134,12 +152,16 @@ public class IncidentReportService {
 
         Set<AgencyType> targetAgencies = category.getDefaultAgencyTypes();
         for (AgencyType agencyType : targetAgencies) {
+            List<AgencyEntity> matchingAgencies = agencyRepository.findByTypeAndActiveTrue(agencyType);
+            UUID resolvedAgencyId = !matchingAgencies.isEmpty() ? matchingAgencies.get(0).getId() : null;
+
             ReportAssignmentEntity assignment = new ReportAssignmentEntity(
                 UUID.randomUUID(),
                 reportId,
                 agencyType,
                 ReportStatus.ASSIGNED
             );
+            assignment.setAgencyId(resolvedAgencyId);
             assignmentRepository.save(assignment);
         }
 
@@ -161,6 +183,68 @@ public class IncidentReportService {
             report.getCreatedAt(),
             targetAgencies
         );
+    }
+
+    @Transactional
+    public ReportAttachmentResponseDto addReportAttachment(UUID reportId, String trackingToken, String mediaType, MultipartFile file) {
+        IncidentReportEntity report = reportRepository.findById(reportId)
+            .orElseThrow(() -> new ResourceNotFoundException("Report not found: " + reportId));
+
+        if (trackingToken != null && report.getTrackingTokenHash() != null) {
+            if (!report.getTrackingTokenHash().equals(hashToken(trackingToken))) {
+                throw new IllegalArgumentException("Invalid tracking token for report: " + reportId);
+            }
+        }
+
+        long existingCount = attachmentRepository.countByReportId(reportId);
+        if (existingCount >= 4) {
+            throw new IllegalArgumentException("Maximum limit of 4 attachments per report reached.");
+        }
+
+        String storageKey = attachmentStorageService.storeFile(file, mediaType);
+        UUID attachmentId = UUID.randomUUID();
+
+        ReportAttachmentEntity attachment = new ReportAttachmentEntity(
+            attachmentId,
+            reportId,
+            mediaType.toUpperCase(),
+            file.getContentType() != null ? file.getContentType() : "application/octet-stream",
+            storageKey,
+            file.getOriginalFilename(),
+            file.getSize()
+        );
+        attachmentRepository.save(attachment);
+
+        return new ReportAttachmentResponseDto(
+            attachmentId,
+            reportId,
+            attachment.getMediaType(),
+            attachment.getContentType(),
+            attachment.getOriginalFileName(),
+            attachment.getFileSizeBytes(),
+            attachment.getCreatedAt()
+        );
+    }
+
+    public List<ReportAttachmentResponseDto> getReportAttachments(UUID reportId) {
+        return attachmentRepository.findByReportIdOrderByCreatedAtAsc(reportId)
+            .stream()
+            .map(att -> new ReportAttachmentResponseDto(
+                att.getId(),
+                att.getReportId(),
+                att.getMediaType(),
+                att.getContentType(),
+                att.getOriginalFileName(),
+                att.getFileSizeBytes(),
+                att.getCreatedAt()
+            ))
+            .toList();
+    }
+
+    public Resource getAttachmentResource(UUID attachmentId) {
+        ReportAttachmentEntity attachment = attachmentRepository.findById(attachmentId)
+            .orElseThrow(() -> new ResourceNotFoundException("Attachment not found: " + attachmentId));
+        return attachmentStorageService.loadAttachmentResource(attachment.getStorageKey());
     }
 
     public TrackedReportResponse trackReport(String publicReference, String rawToken) {

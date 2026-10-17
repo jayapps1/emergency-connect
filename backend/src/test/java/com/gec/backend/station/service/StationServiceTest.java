@@ -2,6 +2,8 @@ package com.gec.backend.station.service;
 
 import com.gec.backend.admin.security.AdminScopeService;
 import com.gec.backend.admin.service.AuditService;
+import com.gec.backend.reference.repository.DistrictRefRepository;
+import com.gec.backend.reference.repository.RegionRefRepository;
 import com.gec.backend.station.dto.StationContactResponse;
 import com.gec.backend.station.dto.StationDetailsResponse;
 import com.gec.backend.station.dto.StationResponse;
@@ -26,12 +28,14 @@ class StationServiceTest {
 
     private final StationRepository stationRepository = Mockito.mock(StationRepository.class);
     private final StationContactRepository contactRepository = Mockito.mock(StationContactRepository.class);
+    private final RegionRefRepository regionRefRepository = Mockito.mock(RegionRefRepository.class);
+    private final DistrictRefRepository districtRefRepository = Mockito.mock(DistrictRefRepository.class);
     private final StationMapper stationMapper = new StationMapper();
     private final AdminScopeService scopeService = Mockito.mock(AdminScopeService.class);
     private final AuditService auditService = Mockito.mock(AuditService.class);
 
     private final StationService stationService = new StationService(
-        stationRepository, contactRepository, stationMapper, scopeService, auditService
+        stationRepository, contactRepository, regionRefRepository, districtRefRepository, stationMapper, scopeService, auditService
     );
 
     @Test

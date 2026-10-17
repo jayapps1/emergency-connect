@@ -71,6 +71,7 @@ export interface StationContact {
   phoneNumber: string;
   type: StationContactType;
   priority: number;
+  publicContact: boolean;
   is24Hour: boolean;
   active: boolean;
   verified: boolean;
@@ -90,7 +91,31 @@ export interface IncidentCategory {
   supportsSilent: boolean;
   supportsGeneral: boolean;
   supportsCall: boolean;
+  displayOrder: number;
+  active: boolean;
   defaultAgencyTypes: AgencyType[];
+}
+
+export interface ReportAttachment {
+  id: string;
+  reportId: string;
+  mediaType: 'IMAGE' | 'VIDEO';
+  contentType: string;
+  originalFileName?: string;
+  fileSizeBytes: number;
+  createdAt: string;
+}
+
+export interface AgencyAssignment {
+  assignmentId: string;
+  agencyType: AgencyType;
+  agencyId?: string;
+  agencyName?: string;
+  stationId?: string;
+  stationName?: string;
+  status: ReportStatus;
+  assignedAt: string;
+  updatedAt: string;
 }
 
 export interface DashboardSummary {
@@ -147,6 +172,8 @@ export interface AdminReportDetails {
     note?: string;
     timestamp: string;
   }[];
+  attachments?: ReportAttachment[];
+  agencyAssignments?: AgencyAssignment[];
 }
 
 export interface AdminUser {

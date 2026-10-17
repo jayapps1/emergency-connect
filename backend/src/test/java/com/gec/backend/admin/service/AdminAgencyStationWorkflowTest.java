@@ -9,6 +9,8 @@ import com.gec.backend.agency.entity.AgencyType;
 import com.gec.backend.agency.mapper.AgencyMapper;
 import com.gec.backend.agency.repository.AgencyRepository;
 import com.gec.backend.agency.service.AgencyService;
+import com.gec.backend.reference.repository.DistrictRefRepository;
+import com.gec.backend.reference.repository.RegionRefRepository;
 import com.gec.backend.station.dto.StationContactResponse;
 import com.gec.backend.station.entity.StationContactType;
 import com.gec.backend.station.entity.StationEntity;
@@ -33,6 +35,8 @@ class AdminAgencyStationWorkflowTest {
     private final AgencyMapper agencyMapper = new AgencyMapper();
     private final StationRepository stationRepository = Mockito.mock(StationRepository.class);
     private final StationContactRepository contactRepository = Mockito.mock(StationContactRepository.class);
+    private final RegionRefRepository regionRefRepository = Mockito.mock(RegionRefRepository.class);
+    private final DistrictRefRepository districtRefRepository = Mockito.mock(DistrictRefRepository.class);
     private final StationMapper stationMapper = new StationMapper();
     private final AdminScopeService scopeService = Mockito.mock(AdminScopeService.class);
     private final AuditService auditService = Mockito.mock(AuditService.class);
@@ -42,7 +46,7 @@ class AdminAgencyStationWorkflowTest {
     );
 
     private final StationService stationService = new StationService(
-        stationRepository, contactRepository, stationMapper, scopeService, auditService
+        stationRepository, contactRepository, regionRefRepository, districtRefRepository, stationMapper, scopeService, auditService
     );
 
     private final UUID agencyId = UUID.randomUUID();

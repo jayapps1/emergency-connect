@@ -35,6 +35,9 @@ public class IncidentCategoryEntity {
     @Column(name = "supports_call", nullable = false)
     private boolean supportsCall = false;
 
+    @Column(name = "display_order", nullable = false)
+    private int displayOrder = 0;
+
     @Column(nullable = false)
     private boolean active = true;
 
@@ -52,7 +55,7 @@ public class IncidentCategoryEntity {
 
     public IncidentCategoryEntity() {}
 
-    public IncidentCategoryEntity(UUID id, String code, String name, String description, IncidentSeverity defaultSeverity, boolean supportsSilent, boolean supportsGeneral, boolean supportsCall, boolean active, Set<AgencyType> defaultAgencyTypes) {
+    public IncidentCategoryEntity(UUID id, String code, String name, String description, IncidentSeverity defaultSeverity, boolean supportsSilent, boolean supportsGeneral, boolean supportsCall, int displayOrder, boolean active, Set<AgencyType> defaultAgencyTypes) {
         this.id = id;
         this.code = code;
         this.name = name;
@@ -61,6 +64,7 @@ public class IncidentCategoryEntity {
         this.supportsSilent = supportsSilent;
         this.supportsGeneral = supportsGeneral;
         this.supportsCall = supportsCall;
+        this.displayOrder = displayOrder;
         this.active = active;
         this.defaultAgencyTypes = defaultAgencyTypes;
     }
@@ -81,6 +85,8 @@ public class IncidentCategoryEntity {
     public void setSupportsGeneral(boolean supportsGeneral) { this.supportsGeneral = supportsGeneral; }
     public boolean isSupportsCall() { return supportsCall; }
     public void setSupportsCall(boolean supportsCall) { this.supportsCall = supportsCall; }
+    public int getDisplayOrder() { return displayOrder; }
+    public void setDisplayOrder(int displayOrder) { this.displayOrder = displayOrder; }
     public boolean isActive() { return active; }
     public void setActive(boolean active) { this.active = active; }
     public Set<AgencyType> getDefaultAgencyTypes() { return defaultAgencyTypes; }

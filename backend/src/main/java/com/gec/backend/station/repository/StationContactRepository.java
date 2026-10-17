@@ -8,4 +8,10 @@ import java.util.UUID;
 public interface StationContactRepository extends JpaRepository<StationContactEntity, UUID> {
     List<StationContactEntity> findByStationIdAndPublicContactTrueAndActiveTrueAndVerifiedTrueOrderByPriorityAsc(UUID stationId);
     List<StationContactEntity> findByStationIdOrderByPriorityAsc(UUID stationId);
+
+    boolean existsByStationIdAndPriority(UUID stationId, int priority);
+    boolean existsByStationIdAndPriorityAndIdNot(UUID stationId, int priority, UUID id);
+
+    boolean existsByNormalizedPhoneNumber(String normalizedPhoneNumber);
+    boolean existsByNormalizedPhoneNumberAndIdNot(String normalizedPhoneNumber, UUID id);
 }

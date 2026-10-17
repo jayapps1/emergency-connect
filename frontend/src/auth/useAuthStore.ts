@@ -1,6 +1,17 @@
 import { create } from 'zustand';
 import { AdminUser } from '@/types';
 
+/**
+ * Zustand state store managing administrative authentication tokens, principal user profiles,
+ * role assignments, and permission authorizations.
+ *
+ * <p>Access Control Rationale:
+ * <ul>
+ *   <li><b>SYSTEM_ADMIN:</b> Granted global authorization across all permissions implicitly via {@link hasPermission}.</li>
+ *   <li><b>Permission Checks:</b> Fine-grained permission strings (e.g. {@code STATION_CREATE}, {@code STATION_VERIFY})
+ *       are verified against the principal's permission array.</li>
+ * </ul>
+ */
 interface AuthState {
   accessToken: string | null;
   user: AdminUser | null;
@@ -51,6 +62,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   hasPermission: (permission) => {
     const { permissions, roles } = get();
+    // System Administrators bypass specific permission checks
     if (roles.includes('SYSTEM_ADMIN')) return true;
     return permissions.includes(permission);
   },

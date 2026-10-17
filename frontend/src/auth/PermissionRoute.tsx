@@ -9,6 +9,10 @@ interface PermissionRouteProps {
   children: React.ReactNode;
 }
 
+/**
+ * Route guard component restricting UI access based on required fine-grained permissions.
+ * Displays a 403 Access Denied view if the authenticated principal lacks the specified permission.
+ */
 export const PermissionRoute: React.FC<PermissionRouteProps> = ({ permission, children }) => {
   const { hasPermission } = useAuthStore();
   const navigate = useNavigate();

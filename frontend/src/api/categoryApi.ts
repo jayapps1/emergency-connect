@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import { IncidentCategory, IncidentSeverity } from '@/types';
+import { AgencyType, IncidentCategory, IncidentSeverity } from '@/types';
 
 export const categoryApi = {
   getCategories: async (): Promise<IncidentCategory[]> => {
@@ -15,6 +15,8 @@ export const categoryApi = {
     supportsSilent: boolean;
     supportsGeneral: boolean;
     supportsCall: boolean;
+    displayOrder: number;
+    defaultAgencyTypes?: AgencyType[];
   }): Promise<IncidentCategory> => {
     const res = await apiClient.post<IncidentCategory>('/api/v1/admin/incident-categories', data);
     return res.data;
@@ -29,6 +31,9 @@ export const categoryApi = {
       supportsSilent: boolean;
       supportsGeneral: boolean;
       supportsCall: boolean;
+      displayOrder: number;
+      active: boolean;
+      defaultAgencyTypes?: AgencyType[];
     }
   ): Promise<IncidentCategory> => {
     const res = await apiClient.put<IncidentCategory>(`/api/v1/admin/incident-categories/${id}`, data);

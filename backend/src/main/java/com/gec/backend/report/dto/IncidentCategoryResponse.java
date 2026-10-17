@@ -14,5 +14,7 @@ public record IncidentCategoryResponse(
     boolean supportsSilent,
     boolean supportsGeneral,
     boolean supportsCall,
+    int displayOrder,
+    boolean active,
     Set<AgencyType> defaultAgencyTypes
 ) {}

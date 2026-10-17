@@ -11,6 +11,7 @@ import com.gec.backend.report.repository.IncidentCategoryRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -33,7 +34,7 @@ public class IncidentCategoryService {
     }
 
     public List<IncidentCategoryResponse> getAllCategories() {
-        return categoryRepository.findAll().stream().map(this::mapToResponse).toList();
+        return categoryRepository.findAllByOrderByDisplayOrderAscNameAsc().stream().map(this::mapToResponse).toList();
     }
 
     public IncidentCategoryResponse getCategoryById(UUID id) {
@@ -44,6 +45,10 @@ public class IncidentCategoryService {
 
     @Transactional
     public IncidentCategoryResponse createCategory(CreateCategoryRequest request) {
+        if (request.supportsSilent() == request.supportsGeneral()) {
+            throw new IllegalArgumentException("Incident category report mode must be exclusively Silent or General, not both.");
+        }
+
         if (categoryRepository.existsByCodeIgnoreCase(request.code().trim())) {
             throw new IllegalArgumentException("Incident category code already exists: " + request.code());
         }
@@ -58,8 +63,9 @@ public class IncidentCategoryService {
             request.supportsSilent(),
             request.supportsGeneral(),
             request.supportsCall(),
+            request.displayOrder(),
             true,
-            Set.of()
+            request.defaultAgencyTypes() != null ? request.defaultAgencyTypes() : Set.of()
         );
         categoryRepository.save(entity);
 
@@ -71,6 +77,10 @@ public class IncidentCategoryService {
 
     @Transactional
     public IncidentCategoryResponse updateCategory(UUID id, UpdateCategoryRequest request) {
+        if (request.supportsSilent() == request.supportsGeneral()) {
+            throw new IllegalArgumentException("Incident category report mode must be exclusively Silent or General, not both.");
+        }
+
         IncidentCategoryEntity entity = categoryRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException("Incident category not found: " + id));
 
@@ -80,6 +90,12 @@ public class IncidentCategoryService {
         entity.setSupportsSilent(request.supportsSilent());
         entity.setSupportsGeneral(request.supportsGeneral());
         entity.setSupportsCall(request.supportsCall());
+        entity.setDisplayOrder(request.displayOrder());
+        entity.setActive(request.active());
+        if (request.defaultAgencyTypes() != null) {
+            entity.setDefaultAgencyTypes(request.defaultAgencyTypes());
+        }
+        entity.setUpdatedAt(LocalDateTime.now());
 
         categoryRepository.save(entity);
 
@@ -95,6 +111,7 @@ public class IncidentCategoryService {
             .orElseThrow(() -> new ResourceNotFoundException("Incident category not found: " + id));
 
         entity.setActive(!entity.isActive());
+        entity.setUpdatedAt(LocalDateTime.now());
         categoryRepository.save(entity);
 
         UUID actorId = scopeService.getCurrentPrincipal().getId();
@@ -103,7 +120,7 @@ public class IncidentCategoryService {
         return mapToResponse(entity);
     }
 
-    private IncidentCategoryResponse mapToResponse(IncidentCategoryEntity entity) {
+    public IncidentCategoryResponse mapToResponse(IncidentCategoryEntity entity) {
         return new IncidentCategoryResponse(
             entity.getId(),
             entity.getCode(),
@@ -113,6 +130,8 @@ public class IncidentCategoryService {
             entity.isSupportsSilent(),
             entity.isSupportsGeneral(),
             entity.isSupportsCall(),
+            entity.getDisplayOrder(),
+            entity.isActive(),
             entity.getDefaultAgencyTypes() != null ? entity.getDefaultAgencyTypes() : Set.of()
         );
     }
