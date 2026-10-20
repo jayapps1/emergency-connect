@@ -12,6 +12,7 @@ public interface AdminUserRepository extends JpaRepository<AdminUserEntity, UUID
     Optional<AdminUserEntity> findByEmailIgnoreCase(String email);
     List<AdminUserEntity> findByAgencyId(UUID agencyId);
     Page<AdminUserEntity> findByAgencyId(UUID agencyId, Pageable pageable);
+    List<AdminUserEntity> findByStationId(UUID stationId);
     boolean existsByEmailIgnoreCase(String email);
     List<AdminUserEntity> findByMustChangePasswordTrue();
     List<AdminUserEntity> findByAgencyIdAndMustChangePasswordTrue(UUID agencyId);

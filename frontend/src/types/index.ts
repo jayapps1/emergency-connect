@@ -223,11 +223,13 @@ export interface AuditLog {
 }
 
 export interface LoginResponse {
-  accessToken: string;
-  expiresInSeconds: number;
+  accessToken?: string;
+  expiresInSeconds?: number;
   user: AdminUser;
   roles: string[];
   permissions: string[];
+  authenticationState?: 'AUTHENTICATED' | 'MFA_REQUIRED' | 'MFA_SETUP_REQUIRED';
+  mfaChallenge?: string;
 }
 
 export interface Page<T> {

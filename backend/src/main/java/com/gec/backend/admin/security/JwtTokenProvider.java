@@ -1,5 +1,6 @@
 package com.gec.backend.admin.security;
 
+import com.gec.backend.publicuser.entity.PublicUserEntity;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -30,6 +31,7 @@ public class JwtTokenProvider {
 
         Map<String, Object> claims = new HashMap<>();
         claims.put("userId", principal.getId().toString());
+        claims.put("userType", "ADMIN");
         if (principal.getAgencyId() != null) {
             claims.put("agencyId", principal.getAgencyId().toString());
         }
@@ -54,6 +56,25 @@ public class JwtTokenProvider {
             .compact();
     }
 
+    public String generatePublicUserToken(PublicUserEntity user) {
+        Date now = new Date();
+        Date expiryDate = new Date(now.getTime() + expirationMs * 2880); // 30 days for mobile public users
+
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("userId", user.getId().toString());
+        claims.put("userType", "PUBLIC");
+        claims.put("phoneNumber", user.getPhoneNumberNormalized());
+        claims.put("authorities", List.of("ROLE_PUBLIC_USER"));
+
+        return Jwts.builder()
+            .subject(user.getPhoneNumberNormalized())
+            .claims(claims)
+            .issuedAt(now)
+            .expiration(expiryDate)
+            .signWith(secretKey)
+            .compact();
+    }
+
     public String getUsernameFromToken(String token) {
         Claims claims = Jwts.parser()
             .verifyWith(secretKey)
@@ -61,6 +82,20 @@ public class JwtTokenProvider {
             .parseSignedClaims(token)
             .getPayload();
         return claims.getSubject();
+    }
+
+    public String getUserTypeFromToken(String token) {
+        try {
+            Claims claims = Jwts.parser()
+                .verifyWith(secretKey)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+            String userType = claims.get("userType", String.class);
+            return userType != null ? userType : "ADMIN";
+        } catch (Exception e) {
+            return "ADMIN";
+        }
     }
 
     public UUID getUserIdFromToken(String token) {

@@ -10,7 +10,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const initializeAuth = async () => {
       try {
         const data = await authApi.refresh();
-        setAuth(data.accessToken, data.user, data.roles, data.permissions);
+        if (data.accessToken) {
+          setAuth(data.accessToken, data.user, data.roles, data.permissions);
+        }
       } catch (e) {
         logout();
       } finally {

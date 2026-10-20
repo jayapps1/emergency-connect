@@ -32,6 +32,8 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import LockIcon from '@mui/icons-material/Lock';
 import SendIcon from '@mui/icons-material/Send';
 import WarningIcon from '@mui/icons-material/Warning';
+import PersonIcon from '@mui/icons-material/Person';
+import SecurityIcon from '@mui/icons-material/Security';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { reportApi } from '@/api/reportApi';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -58,6 +60,19 @@ export const ReportDetailsPage: React.FC = () => {
     queryKey: ['reportDetails', reportId],
     queryFn: () => reportApi.getReportDetails(reportId!),
     enabled: Boolean(reportId),
+  });
+
+  const riskReviewMutation = useMutation({
+    mutationFn: ({ decision, note }: { decision: string; note?: string }) =>
+      reportApi.reviewRiskAssessment(reportId!, decision, note),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['reportDetails', reportId] });
+      setSuccessMsg(`Risk review updated to ${data.reviewStatus}.`);
+      setTimeout(() => setSuccessMsg(null), 4000);
+    },
+    onError: (err: any) => {
+      setErrorMsg(err.response?.data?.message || 'Failed to update risk review.');
+    },
   });
 
   const acknowledgeMutation = useMutation({
@@ -216,6 +231,12 @@ export const ReportDetailsPage: React.FC = () => {
                 <Chip label={`Severity: ${report.severity}`} color={report.severity === 'CRITICAL' ? 'error' : 'default'} />
                 <Chip label={`Mode: ${report.mode}`} variant="outlined" />
                 <Chip label={`Elapsed: ${elapsedMinutes} mins`} variant="outlined" />
+                <Chip
+                  icon={<PersonIcon fontSize="small" />}
+                  label="Reporter: Verified User / Guest"
+                  size="small"
+                  variant="outlined"
+                />
               </Box>
 
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -232,6 +253,57 @@ export const ReportDetailsPage: React.FC = () => {
               </Typography>
             </CardContent>
           </Card>
+
+          {/* System Admin Risk Review Card */}
+          {isSysAdmin && (
+            <Card sx={{ mb: 3, border: '1px solid', borderColor: 'primary.light' }}>
+              <CardContent sx={{ p: 3 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                  <SecurityIcon color="primary" />
+                  <Typography variant="subtitle1" fontWeight="bold">
+                    Reporter Safety & Risk Review
+                  </Typography>
+                </Box>
+                <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1.5 }}>
+                  Informational risk signals evaluated at submission. Emergency routing proceeds normally regardless of risk level.
+                </Typography>
+                <Divider sx={{ mb: 2 }} />
+
+                <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <Typography variant="body2" fontWeight="bold">Risk Level:</Typography>
+                  <Chip label="NORMAL" color="success" size="small" />
+                  <Typography variant="body2" fontWeight="bold" sx={{ ml: 2 }}>Review Status:</Typography>
+                  <Chip label="UNREVIEWED" size="small" variant="outlined" />
+                </Box>
+
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="success"
+                    onClick={() => riskReviewMutation.mutate({ decision: 'CONFIRMED_VALID' })}
+                  >
+                    Mark Valid
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="error"
+                    onClick={() => riskReviewMutation.mutate({ decision: 'CONFIRMED_ABUSE' })}
+                  >
+                    Confirm Abuse
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => riskReviewMutation.mutate({ decision: 'FALSE_POSITIVE' })}
+                  >
+                    False Positive
+                  </Button>
+                </Box>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Operational Action Controls for Responsible Agency Staff */}
           {!isSysAdmin && (

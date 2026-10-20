@@ -6,3 +6,5 @@ target/
 logs/
 *.tmp
 *.temp
+/config/application-secrets.yml
+src/main/java/com/gec/backend/config/application-secrets.yml

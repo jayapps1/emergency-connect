@@ -1,6 +1,18 @@
 import { apiClient } from './client';
 import { AdminReportDetails, AdminReportSummary, AgencyType, Page, ReportStatus } from '@/types';
 
+export interface ReportRiskAssessment {
+  id: string;
+  reportId: string;
+  riskLevel: 'NORMAL' | 'ELEVATED' | 'HIGH';
+  riskScore?: number;
+  signals?: string;
+  reviewStatus: 'UNREVIEWED' | 'CONFIRMED_VALID' | 'CONFIRMED_ABUSE' | 'FALSE_POSITIVE';
+  reviewedBy?: string;
+  reviewedAt?: string;
+  reviewNote?: string;
+}
+
 export const reportApi = {
   getReports: async (page = 0, size = 10): Promise<Page<AdminReportSummary>> => {
     const res = await apiClient.get<Page<AdminReportSummary>>('/api/v1/admin/reports', {
@@ -36,6 +48,11 @@ export const reportApi = {
 
   promptAgency: async (reportId: string, note?: string): Promise<AdminReportDetails> => {
     const res = await apiClient.post<AdminReportDetails>(`/api/v1/admin/reports/${reportId}/prompt`, { note });
+    return res.data;
+  },
+
+  reviewRiskAssessment: async (reportId: string, decision: string, note?: string): Promise<ReportRiskAssessment> => {
+    const res = await apiClient.post<ReportRiskAssessment>(`/api/v1/admin/report-risk/${reportId}/review`, { decision, note });
     return res.data;
   },
 };

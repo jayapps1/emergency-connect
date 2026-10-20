@@ -34,6 +34,12 @@ public class IncidentReportEntity {
     @Column(name = "anonymous_session_id")
     private String anonymousSessionId;
 
+    @Column(name = "reporter_public_user_id")
+    private UUID reporterPublicUserId;
+
+    @Column(name = "installation_id")
+    private UUID installationId;
+
     @Column(name = "tracking_token_hash")
     private String trackingTokenHash;
 
@@ -85,6 +91,10 @@ public class IncidentReportEntity {
     public void setDescription(String description) { this.description = description; }
     public String getAnonymousSessionId() { return anonymousSessionId; }
     public void setAnonymousSessionId(String anonymousSessionId) { this.anonymousSessionId = anonymousSessionId; }
+    public UUID getReporterPublicUserId() { return reporterPublicUserId; }
+    public void setReporterPublicUserId(UUID reporterPublicUserId) { this.reporterPublicUserId = reporterPublicUserId; }
+    public UUID getInstallationId() { return installationId; }
+    public void setInstallationId(UUID installationId) { this.installationId = installationId; }
     public String getTrackingTokenHash() { return trackingTokenHash; }
     public void setTrackingTokenHash(String trackingTokenHash) { this.trackingTokenHash = trackingTokenHash; }
     public UUID getClientGeneratedRequestId() { return clientGeneratedRequestId; }

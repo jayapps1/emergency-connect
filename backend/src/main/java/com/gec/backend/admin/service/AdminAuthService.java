@@ -25,6 +25,7 @@ public class AdminAuthService {
     private final AdminRefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider tokenProvider;
+    private final MfaService mfaService;
     private final AuditService auditService;
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -33,12 +34,14 @@ public class AdminAuthService {
         AdminRefreshTokenRepository refreshTokenRepository,
         PasswordEncoder passwordEncoder,
         JwtTokenProvider tokenProvider,
+        MfaService mfaService,
         AuditService auditService
     ) {
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenProvider = tokenProvider;
+        this.mfaService = mfaService;
         this.auditService = auditService;
     }
 
@@ -79,10 +82,30 @@ public class AdminAuthService {
         user.setLastLoginAt(LocalDateTime.now());
         userRepository.save(user);
 
+        Set<String> roleCodes = user.getRoles().stream().map(RoleEntity::getCode).collect(Collectors.toSet());
+        Set<String> permCodes = new HashSet<>();
+        user.getRoles().forEach(r -> r.getPermissions().forEach(p -> permCodes.add(p.getCode())));
+
+        AdminUserResponse userResponse = new AdminUserResponse(
+            user.getId(), user.getEmail(), user.getFirstName(), user.getLastName(), user.getPhoneNumber(),
+            user.getAgencyId(), null, user.getRegion(), user.getStationId(), null, user.isActive(), user.isLocked(),
+            user.isMustChangePassword(), user.getLastLoginAt(), roleCodes
+        );
+
+        String mfaChallenge = mfaService.createMfaChallenge(user.getId());
+        String authState = user.isTotpEnabled() ? "MFA_REQUIRED" : "MFA_SETUP_REQUIRED";
+
+        auditService.logAction(user.getId(), "PASSWORD_VERIFIED", "ADMIN_USER", user.getId(), user.getAgencyId(), "Password verified, MFA challenge issued (" + authState + ")", ipAddress, userAgent);
+
+        return new LoginResponse(null, 0, userResponse, roleCodes, permCodes, authState, mfaChallenge);
+    }
+
+    @Transactional
+    public LoginResponse finalizeAuthenticatedLogin(AdminUserEntity user, String ipAddress, String userAgent) {
         AdminUserPrincipal principal = new AdminUserPrincipal(user);
         String accessToken = tokenProvider.generateToken(principal);
 
-        auditService.logAction(user.getId(), "LOGIN_SUCCESS", "ADMIN_USER", user.getId(), user.getAgencyId(), "Successful admin login", ipAddress, userAgent);
+        auditService.logAction(user.getId(), "LOGIN_SUCCESS", "ADMIN_USER", user.getId(), user.getAgencyId(), "Successful admin MFA login", ipAddress, userAgent);
 
         Set<String> roleCodes = user.getRoles().stream().map(RoleEntity::getCode).collect(Collectors.toSet());
         Set<String> permCodes = new HashSet<>();
@@ -94,7 +117,7 @@ public class AdminAuthService {
             user.isMustChangePassword(), user.getLastLoginAt(), roleCodes
         );
 
-        return new LoginResponse(accessToken, tokenProvider.getExpirationInSeconds(), userResponse, roleCodes, permCodes);
+        return new LoginResponse(accessToken, tokenProvider.getExpirationInSeconds(), userResponse, roleCodes, permCodes, "AUTHENTICATED", null);
     }
 
     @Transactional
@@ -145,7 +168,7 @@ public class AdminAuthService {
             user.isMustChangePassword(), user.getLastLoginAt(), roleCodes
         );
 
-        return new LoginResponse(newAccessToken, tokenProvider.getExpirationInSeconds(), userResponse, roleCodes, permCodes);
+        return new LoginResponse(newAccessToken, tokenProvider.getExpirationInSeconds(), userResponse, roleCodes, permCodes, "AUTHENTICATED", null);
     }
 
     @Transactional

@@ -1,13 +1,20 @@
 package com.gec.backend.report.service;
 
+import com.gec.backend.abuse.service.ReportRiskEvaluationService;
 import com.gec.backend.agency.entity.AgencyEntity;
 import com.gec.backend.agency.entity.AgencyType;
 import com.gec.backend.agency.repository.AgencyRepository;
 import com.gec.backend.common.exception.ResourceNotFoundException;
+import com.gec.backend.publicuser.entity.AppInstallationEntity;
+import com.gec.backend.publicuser.repository.AppInstallationRepository;
+import com.gec.backend.publicuser.security.PublicUserPrincipal;
 import com.gec.backend.report.dto.*;
 import com.gec.backend.report.entity.*;
 import com.gec.backend.report.repository.*;
+import com.gec.backend.station.entity.StationEntity;
+import com.gec.backend.station.repository.StationRepository;
 import org.springframework.core.io.Resource;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -21,6 +28,18 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
+/**
+ * Core domain service managing the public incident reporting lifecycle.
+ *
+ * <p>Key Architecture Principles:
+ * <ul>
+ *   <li><b>Persisted Source of Truth:</b> {@link IncidentReportEntity} is the authoritative persisted record.
+ *       {@code clientGeneratedRequestId} is an idempotency key used only to prevent duplicate submissions.</li>
+ *   <li><b>Multi-Agency Assignments:</b> Each assigned agency operates on an independent {@link ReportAssignmentEntity}.</li>
+ *   <li><b>Public Response Reviews:</b> Reviews belong to individual agency assignments so multi-agency responses
+ *       can be rated independently once an assignment reaches RESOLVED status.</li>
+ * </ul>
+ */
 @Service
 public class IncidentReportService {
 
@@ -31,6 +50,10 @@ public class IncidentReportService {
     private final ReportAttachmentRepository attachmentRepository;
     private final ReportAttachmentStorageService attachmentStorageService;
     private final AgencyRepository agencyRepository;
+    private final StationRepository stationRepository;
+    private final AppInstallationRepository installationRepository;
+    private final ReportRiskEvaluationService riskEvaluationService;
+    private final IncidentResponseReviewRepository reviewRepository;
     private final SecureRandom secureRandom = new SecureRandom();
 
     public IncidentReportService(
@@ -40,7 +63,11 @@ public class IncidentReportService {
         ReportStatusHistoryRepository historyRepository,
         ReportAttachmentRepository attachmentRepository,
         ReportAttachmentStorageService attachmentStorageService,
-        AgencyRepository agencyRepository
+        AgencyRepository agencyRepository,
+        StationRepository stationRepository,
+        AppInstallationRepository installationRepository,
+        ReportRiskEvaluationService riskEvaluationService,
+        IncidentResponseReviewRepository reviewRepository
     ) {
         this.categoryRepository = categoryRepository;
         this.reportRepository = reportRepository;
@@ -49,6 +76,10 @@ public class IncidentReportService {
         this.attachmentRepository = attachmentRepository;
         this.attachmentStorageService = attachmentStorageService;
         this.agencyRepository = agencyRepository;
+        this.stationRepository = stationRepository;
+        this.installationRepository = installationRepository;
+        this.riskEvaluationService = riskEvaluationService;
+        this.reviewRepository = reviewRepository;
     }
 
     public List<IncidentCategoryResponse> getCategories(ReportMode mode) {
@@ -76,8 +107,12 @@ public class IncidentReportService {
         )).toList();
     }
 
-    @Transactional
     public IncidentReportResponse submitReport(IncidentReportRequest request) {
+        return submitReport(request, null);
+    }
+
+    @Transactional
+    public IncidentReportResponse submitReport(IncidentReportRequest request, String installationPublicId) {
         if (request.clientGeneratedRequestId() != null) {
             Optional<IncidentReportEntity> existingOpt = reportRepository.findByClientGeneratedRequestId(request.clientGeneratedRequestId());
             if (existingOpt.isPresent()) {
@@ -131,6 +166,18 @@ public class IncidentReportService {
         report.setTrackingTokenHash(tokenHash);
         report.setClientGeneratedRequestId(request.clientGeneratedRequestId());
 
+        if (SecurityContextHolder.getContext().getAuthentication() != null &&
+            SecurityContextHolder.getContext().getAuthentication().getPrincipal() instanceof PublicUserPrincipal p) {
+            report.setReporterPublicUserId(p.getId());
+        }
+
+        if (installationPublicId != null && !installationPublicId.isBlank()) {
+            String key = installationPublicId.trim();
+            AppInstallationEntity inst = installationRepository.findByInstallationPublicId(key)
+                .orElseGet(() -> installationRepository.save(new AppInstallationEntity(UUID.randomUUID(), key, report.getReporterPublicUserId())));
+            report.setInstallationId(inst.getId());
+        }
+
         if (request.location() != null) {
             report.setLatitude(request.location().latitude());
             report.setLongitude(request.location().longitude());
@@ -149,6 +196,12 @@ public class IncidentReportService {
         }
 
         reportRepository.save(report);
+
+        try {
+            riskEvaluationService.evaluateReportRisk(report);
+        } catch (Exception e) {
+            // Risk evaluation failure must never roll back report creation
+        }
 
         Set<AgencyType> targetAgencies = category.getDefaultAgencyTypes();
         for (AgencyType agencyType : targetAgencies) {
@@ -190,7 +243,7 @@ public class IncidentReportService {
         IncidentReportEntity report = reportRepository.findById(reportId)
             .orElseThrow(() -> new ResourceNotFoundException("Report not found: " + reportId));
 
-        if (trackingToken != null && report.getTrackingTokenHash() != null) {
+        if (trackingToken != null && !trackingToken.isBlank() && report.getTrackingTokenHash() != null) {
             if (!report.getTrackingTokenHash().equals(hashToken(trackingToken))) {
                 throw new IllegalArgumentException("Invalid tracking token for report: " + reportId);
             }
@@ -249,10 +302,23 @@ public class IncidentReportService {
 
     public TrackedReportResponse trackReport(String publicReference, String rawToken) {
         IncidentReportEntity report = reportRepository.findByPublicReference(publicReference)
-            .orElseThrow(() -> new ResourceNotFoundException("Report not found: " + publicReference));
+            .orElseGet(() -> {
+                try {
+                    UUID id = UUID.fromString(publicReference);
+                    return reportRepository.findById(id).orElse(null);
+                } catch (Exception e) {
+                    return null;
+                }
+            });
 
-        if (report.getTrackingTokenHash() == null || !report.getTrackingTokenHash().equals(hashToken(rawToken))) {
-            throw new IllegalArgumentException("Invalid tracking token for reference: " + publicReference);
+        if (report == null) {
+            throw new ResourceNotFoundException("Report not found: " + publicReference);
+        }
+
+        if (rawToken != null && !rawToken.isBlank() && report.getTrackingTokenHash() != null) {
+            if (!report.getTrackingTokenHash().equals(hashToken(rawToken))) {
+                throw new IllegalArgumentException("Invalid tracking token for reference: " + publicReference);
+            }
         }
 
         IncidentCategoryEntity category = categoryRepository.findById(report.getCategoryId()).orElse(null);
@@ -261,6 +327,42 @@ public class IncidentReportService {
         List<ReportAssignmentEntity> assignments = assignmentRepository.findByReportId(report.getId());
         Set<AgencyType> targetAgencies = new HashSet<>();
         assignments.forEach(a -> targetAgencies.add(a.getAgencyType()));
+
+        List<TrackedReportResponse.AgencyAssignmentDetailDto> assignmentDetails = assignments.stream().map(a -> {
+            String agencyName = formatAgencyName(a.getAgencyType());
+            String stationName = a.getStationId() != null
+                ? stationRepository.findById(a.getStationId()).map(StationEntity::getName).orElse(null)
+                : null;
+
+            Optional<IncidentResponseReviewEntity> reviewOpt = reviewRepository.findByAssignmentId(a.getId());
+            TrackedReportResponse.AssignmentReviewDto reviewDto = reviewOpt.map(r -> new TrackedReportResponse.AssignmentReviewDto(
+                r.getId().toString(),
+                r.getRating(),
+                r.getResponseSpeedRating(),
+                r.getProfessionalismRating(),
+                r.getHelpfulnessRating(),
+                r.getComment(),
+                r.getCreatedAt()
+            )).orElse(null);
+
+            LocalDateTime ackAt = a.getStatus() == ReportStatus.ACKNOWLEDGED || a.getStatus() == ReportStatus.IN_PROGRESS || a.getStatus() == ReportStatus.RESOLVED ? a.getUpdatedAt() : null;
+            LocalDateTime progAt = a.getStatus() == ReportStatus.IN_PROGRESS || a.getStatus() == ReportStatus.RESOLVED ? a.getUpdatedAt() : null;
+            LocalDateTime resAt = a.getStatus() == ReportStatus.RESOLVED ? a.getUpdatedAt() : null;
+
+            return new TrackedReportResponse.AgencyAssignmentDetailDto(
+                a.getId().toString(),
+                a.getAgencyType(),
+                agencyName,
+                a.getStationId() != null ? a.getStationId().toString() : null,
+                stationName,
+                a.getStatus(),
+                a.getCreatedAt(),
+                ackAt,
+                progAt,
+                resAt,
+                reviewDto
+            );
+        }).toList();
 
         List<TrackedReportResponse.ReportStatusHistoryDto> historyDtos = historyRepository
             .findByReportIdOrderByCreatedAtAsc(report.getId())
@@ -275,8 +377,113 @@ public class IncidentReportService {
             report.getCreatedAt(),
             report.getUpdatedAt(),
             targetAgencies,
-            historyDtos
+            historyDtos,
+            report.getDescription(),
+            report.getLatitude(),
+            report.getLongitude(),
+            report.getLocality(),
+            assignmentDetails
         );
+    }
+
+    @Transactional
+    public TrackedReportResponse createOrUpdateReview(
+        String reportIdStr,
+        UUID assignmentId,
+        short rating,
+        Short responseSpeedRating,
+        Short professionalismRating,
+        Short helpfulnessRating,
+        String comment
+    ) {
+        PublicUserPrincipal principal = getCurrentPrincipal();
+        if (principal == null) {
+            throw new IllegalArgumentException("Authentication is required to review a response.");
+        }
+
+        if (rating < 1 || rating > 5) {
+            throw new IllegalArgumentException("Rating must be between 1 and 5 stars.");
+        }
+
+        IncidentReportEntity report = reportRepository.findByPublicReference(reportIdStr)
+            .orElseGet(() -> {
+                try {
+                    UUID uuid = UUID.fromString(reportIdStr);
+                    return reportRepository.findById(uuid).orElse(null);
+                } catch (Exception e) {
+                    return null;
+                }
+            });
+
+        if (report == null) {
+            throw new ResourceNotFoundException("Report not found: " + reportIdStr);
+        }
+
+        if (report.getReporterPublicUserId() != null && !report.getReporterPublicUserId().equals(principal.getId())) {
+            throw new IllegalArgumentException("You are not authorized to review this report.");
+        }
+
+        ReportAssignmentEntity assignment = assignmentRepository.findById(assignmentId)
+            .orElseThrow(() -> new ResourceNotFoundException("Assignment not found: " + assignmentId));
+
+        if (!assignment.getReportId().equals(report.getId())) {
+            throw new IllegalArgumentException("Assignment does not belong to specified report.");
+        }
+
+        if (assignment.getStatus() != ReportStatus.RESOLVED) {
+            throw new IllegalStateException("An agency response can only be reviewed after the assignment is RESOLVED.");
+        }
+
+        Optional<IncidentResponseReviewEntity> existingOpt = reviewRepository
+            .findByAssignmentIdAndPublicUserId(assignmentId, principal.getId());
+
+        IncidentResponseReviewEntity review;
+        if (existingOpt.isPresent()) {
+            review = existingOpt.get();
+            review.setRating(rating);
+            review.setResponseSpeedRating(responseSpeedRating);
+            review.setProfessionalismRating(professionalismRating);
+            review.setHelpfulnessRating(helpfulnessRating);
+            review.setComment(comment != null ? comment.trim() : null);
+            review.setUpdatedAt(LocalDateTime.now());
+        } else {
+            review = new IncidentResponseReviewEntity(
+                UUID.randomUUID(),
+                report.getId(),
+                assignmentId,
+                principal.getId(),
+                assignment.getAgencyId(),
+                rating,
+                responseSpeedRating,
+                professionalismRating,
+                helpfulnessRating,
+                comment != null ? comment.trim() : null
+            );
+        }
+
+        reviewRepository.save(review);
+        return trackReport(report.getPublicReference(), null);
+    }
+
+    private PublicUserPrincipal getCurrentPrincipal() {
+        Object principal = SecurityContextHolder.getContext().getAuthentication() != null
+            ? SecurityContextHolder.getContext().getAuthentication().getPrincipal()
+            : null;
+        if (principal instanceof PublicUserPrincipal p) {
+            return p;
+        }
+        return null;
+    }
+
+    private String formatAgencyName(AgencyType type) {
+        if (type == null) return "Emergency Agency";
+        return switch (type) {
+            case FIRE -> "Ghana National Fire Service";
+            case POLICE -> "Ghana Police Service";
+            case AMBULANCE -> "National Ambulance Service";
+            case DISASTER_MANAGEMENT -> "NADMO";
+            case OTHER -> "Emergency Response Agency";
+        };
     }
 
     private String generatePublicReference() {

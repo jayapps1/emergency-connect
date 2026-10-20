@@ -51,7 +51,8 @@ public class SecurityConfig {
                     "/actuator/health",
                     "/actuator/info",
                     "/api/v1/admin/auth/login",
-                    "/api/v1/admin/auth/refresh"
+                    "/api/v1/admin/auth/refresh",
+                    "/api/v1/admin/auth/mfa/**"
                 ).permitAll()
                 .anyRequest().authenticated()
             )

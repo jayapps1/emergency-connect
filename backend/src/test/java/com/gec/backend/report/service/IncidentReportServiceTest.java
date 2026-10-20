@@ -1,10 +1,13 @@
 package com.gec.backend.report.service;
 
+import com.gec.backend.abuse.service.ReportRiskEvaluationService;
 import com.gec.backend.agency.entity.AgencyType;
 import com.gec.backend.agency.repository.AgencyRepository;
+import com.gec.backend.publicuser.repository.AppInstallationRepository;
 import com.gec.backend.report.dto.*;
 import com.gec.backend.report.entity.*;
 import com.gec.backend.report.repository.*;
+import com.gec.backend.station.repository.StationRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -26,6 +29,10 @@ class IncidentReportServiceTest {
     private final ReportAttachmentRepository attachmentRepository = Mockito.mock(ReportAttachmentRepository.class);
     private final ReportAttachmentStorageService attachmentStorageService = Mockito.mock(ReportAttachmentStorageService.class);
     private final AgencyRepository agencyRepository = Mockito.mock(AgencyRepository.class);
+    private final StationRepository stationRepository = Mockito.mock(StationRepository.class);
+    private final AppInstallationRepository installationRepository = Mockito.mock(AppInstallationRepository.class);
+    private final ReportRiskEvaluationService riskEvaluationService = Mockito.mock(ReportRiskEvaluationService.class);
+    private final IncidentResponseReviewRepository reviewRepository = Mockito.mock(IncidentResponseReviewRepository.class);
 
     private final IncidentReportService reportService = new IncidentReportService(
         categoryRepository,
@@ -34,7 +41,11 @@ class IncidentReportServiceTest {
         historyRepository,
         attachmentRepository,
         attachmentStorageService,
-        agencyRepository
+        agencyRepository,
+        stationRepository,
+        installationRepository,
+        riskEvaluationService,
+        reviewRepository
     );
 
     @Test

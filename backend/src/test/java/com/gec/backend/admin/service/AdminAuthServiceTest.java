@@ -26,14 +26,15 @@ class AdminAuthServiceTest {
     private final AdminRefreshTokenRepository refreshTokenRepository = Mockito.mock(AdminRefreshTokenRepository.class);
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private final JwtTokenProvider tokenProvider = new JwtTokenProvider("secretKeyForTestingMustBeAtLeast32BytesLong!", 900000);
+    private final MfaService mfaService = Mockito.mock(MfaService.class);
     private final AuditService auditService = Mockito.mock(AuditService.class);
 
     private final AdminAuthService authService = new AdminAuthService(
-        userRepository, refreshTokenRepository, passwordEncoder, tokenProvider, auditService
+        userRepository, refreshTokenRepository, passwordEncoder, tokenProvider, mfaService, auditService
     );
 
     @Test
-    void login_success_returnsAccessToken() {
+    void login_success_returnsMfaChallenge() {
         UUID userId = UUID.randomUUID();
         AdminUserEntity user = new AdminUserEntity();
         user.setId(userId);
@@ -44,12 +45,14 @@ class AdminAuthServiceTest {
         user.setRoles(Set.of());
 
         given(userRepository.findByEmailIgnoreCase("admin@gec.gov.gh")).willReturn(Optional.of(user));
+        given(mfaService.createMfaChallenge(any())).willReturn("challenge_token_test");
 
         LoginRequest request = new LoginRequest("admin@gec.gov.gh", "Password123!");
         LoginResponse response = authService.login(request, "127.0.0.1", "JUnit");
 
         assertNotNull(response);
-        assertNotNull(response.accessToken());
+        assertEquals("MFA_SETUP_REQUIRED", response.authenticationState());
+        assertEquals("challenge_token_test", response.mfaChallenge());
         assertEquals("admin@gec.gov.gh", response.user().email());
     }
 

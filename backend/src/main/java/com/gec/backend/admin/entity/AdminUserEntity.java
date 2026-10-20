@@ -48,6 +48,18 @@ public class AdminUserEntity {
     @Column(name = "must_change_password", nullable = false)
     private boolean mustChangePassword = false;
 
+    @Column(name = "totp_enabled", nullable = false)
+    private boolean totpEnabled = false;
+
+    @Column(name = "totp_secret_encrypted")
+    private String totpSecretEncrypted;
+
+    @Column(name = "totp_confirmed_at")
+    private LocalDateTime totpConfirmedAt;
+
+    @Column(name = "mfa_recovery_generated_at")
+    private LocalDateTime mfaRecoveryGeneratedAt;
+
     @Column(name = "last_login_at")
     private LocalDateTime lastLoginAt;
 
@@ -102,6 +114,14 @@ public class AdminUserEntity {
     public void setFailedLoginAttempts(int failedLoginAttempts) { this.failedLoginAttempts = failedLoginAttempts; }
     public boolean isMustChangePassword() { return mustChangePassword; }
     public void setMustChangePassword(boolean mustChangePassword) { this.mustChangePassword = mustChangePassword; }
+    public boolean isTotpEnabled() { return totpEnabled; }
+    public void setTotpEnabled(boolean totpEnabled) { this.totpEnabled = totpEnabled; }
+    public String getTotpSecretEncrypted() { return totpSecretEncrypted; }
+    public void setTotpSecretEncrypted(String totpSecretEncrypted) { this.totpSecretEncrypted = totpSecretEncrypted; }
+    public LocalDateTime getTotpConfirmedAt() { return totpConfirmedAt; }
+    public void setTotpConfirmedAt(LocalDateTime totpConfirmedAt) { this.totpConfirmedAt = totpConfirmedAt; }
+    public LocalDateTime getMfaRecoveryGeneratedAt() { return mfaRecoveryGeneratedAt; }
+    public void setMfaRecoveryGeneratedAt(LocalDateTime mfaRecoveryGeneratedAt) { this.mfaRecoveryGeneratedAt = mfaRecoveryGeneratedAt; }
     public LocalDateTime getLastLoginAt() { return lastLoginAt; }
     public void setLastLoginAt(LocalDateTime lastLoginAt) { this.lastLoginAt = lastLoginAt; }
     public LocalDateTime getPasswordChangedAt() { return passwordChangedAt; }

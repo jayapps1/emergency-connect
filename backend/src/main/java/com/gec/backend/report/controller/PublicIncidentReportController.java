@@ -25,8 +25,11 @@ public class PublicIncidentReportController {
     }
 
     @PostMapping
-    public ResponseEntity<IncidentReportResponse> submitReport(@Valid @RequestBody IncidentReportRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(reportService.submitReport(request));
+    public ResponseEntity<IncidentReportResponse> submitReport(
+        @Valid @RequestBody IncidentReportRequest request,
+        @RequestHeader(value = "X-Installation-ID", required = false) String installationPublicId
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(reportService.submitReport(request, installationPublicId));
     }
 
     @PostMapping(value = "/{reportId}/attachments", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -43,7 +46,7 @@ public class PublicIncidentReportController {
     @GetMapping("/track/{publicReference}")
     public ResponseEntity<TrackedReportResponse> trackReport(
         @PathVariable String publicReference,
-        @RequestHeader("X-Report-Token") String token
+        @RequestHeader(value = "X-Report-Token", required = false) String token
     ) {
         return ResponseEntity.ok(reportService.trackReport(publicReference, token));
     }

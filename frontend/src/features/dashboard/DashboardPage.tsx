@@ -21,17 +21,24 @@ import WarningIcon from '@mui/icons-material/Warning';
 import AddIcon from '@mui/icons-material/Add';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import LocalOfferIcon from '@mui/icons-material/LocalOffer';
+import ShieldIcon from '@mui/icons-material/Shield';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import { useQuery } from '@tanstack/react-query';
-import { agencyApi } from '@/api/agencyApi';
 import { reportApi } from '@/api/reportApi';
 import { dashboardApi } from '@/api/dashboardApi';
 import { useAuthStore } from '@/auth/useAuthStore';
 import { useNavigate } from 'react-router-dom';
 import { EmergencyActivityChart } from './EmergencyActivityChart';
+import { DashboardHero } from './DashboardHero';
+import { MetricCard } from './MetricCard';
+import { RequiresAttentionPanel } from './RequiresAttentionPanel';
+import { AgencyPerformanceCard } from './AgencyPerformanceCard';
 
 export const DashboardPage: React.FC = () => {
-  const { user, hasRole, hasPermission } = useAuthStore();
+  const { user, hasRole, hasPermission, roles } = useAuthStore();
   const navigate = useNavigate();
+  const isSysAdmin = hasRole('SYSTEM_ADMIN');
 
   const { data: summary, isLoading: loadingSummary } = useQuery({
     queryKey: ['dashboardSummary'],
@@ -39,28 +46,38 @@ export const DashboardPage: React.FC = () => {
   });
 
   const { data: reportsPage, isLoading: loadingReports } = useQuery({
-    queryKey: ['reports', 0, 5],
-    queryFn: () => reportApi.getReports(0, 5),
+    queryKey: ['reports', 0, 10],
+    queryFn: () => reportApi.getReports(0, 10),
     enabled: hasPermission('REPORT_READ'),
   });
 
   const reports = reportsPage?.content || [];
 
+  const roleTitle = isSysAdmin
+    ? 'SYSTEM ADMIN — National Platform Oversight'
+    : user?.agencyName
+    ? `${user.agencyName} ${user.region ? `(${user.region})` : ''} — ${roles[0] || 'Agency Staff'}`
+    : `${roles[0] || 'User'} Command Dashboard`;
+
+  const heroSubtitle = isSysAdmin
+    ? 'Monitor national emergency response timelines, agency performance, and cross-service coordination.'
+    : `Coordinate emergency incidents, dispatch stations, and maintain operational response status for ${user?.agencyName || 'your agency'}.`;
+
   return (
     <Box>
-      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
-        <div>
-          <Typography variant="h4" fontWeight="bold" gutterBottom>
-            Welcome back, {user?.firstName}
-          </Typography>
-          <Typography variant="body1" color="text.secondary">
-            {hasRole('SYSTEM_ADMIN')
-              ? 'Platform-Wide System Emergency Command Overview'
-              : `Agency Dashboard — ${user?.email}`}
-          </Typography>
-        </div>
+      {/* Premium Dashboard Hero */}
+      <DashboardHero
+        userName={user?.firstName}
+        roleTitle={roleTitle}
+        subtitle={heroSubtitle}
+      />
 
-        {/* Quick Action Buttons */}
+      {/* Quick Actions Bar */}
+      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+        <Typography variant="h6" fontWeight="bold">
+          Emergency Operations Command & Statistics
+        </Typography>
+
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
           {hasPermission('AGENCY_CREATE') && (
             <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={() => navigate('/agencies')}>
@@ -74,78 +91,156 @@ export const DashboardPage: React.FC = () => {
           )}
           {hasPermission('ADMIN_USER_CREATE') && (
             <Button variant="outlined" size="small" startIcon={<PersonAddIcon />} onClick={() => navigate('/users')}>
-              Add User
+              Add Admin User
             </Button>
           )}
         </Box>
       </Box>
 
-      {/* KPI Cards */}
+      {/* Redesigned Metric Cards Grid */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        {hasPermission('AGENCY_READ') && (
-          <Grid item xs={12} sm={6} md={2.4}>
-            <StatCard
-              title="Agencies"
-              value={loadingSummary ? <Skeleton width={40} /> : summary?.totalAgencies || 0}
-              icon={<BusinessIcon color="primary" />}
-              subtitle="Verified Agencies"
-            />
-          </Grid>
-        )}
-
-        <Grid item xs={12} sm={6} md={2.4}>
-          <StatCard
-            title="Active Stations"
-            value={loadingSummary ? <Skeleton width={40} /> : summary?.activeStations || 0}
-            icon={<LocalOfferIcon color="primary" />}
-            subtitle="Operational Units"
-          />
-        </Grid>
-
-        <Grid item xs={12} sm={6} md={2.4}>
-          <StatCard
+        <Grid item xs={12} sm={6} md={3}>
+          <MetricCard
             title="Reports Today"
             value={loadingSummary ? <Skeleton width={40} /> : summary?.reportsToday || 0}
-            icon={<ReportProblemIcon color="primary" />}
-            subtitle="Submitted Today"
+            subtitle="Incidents submitted today"
+            icon={<ReportProblemIcon />}
+            iconBg="#EFF6FF"
+            iconColor="#0066CC"
+            trendText="Active Today"
+            trendType="info"
           />
         </Grid>
 
-        <Grid item xs={12} sm={6} md={2.4}>
-          <StatCard
+        <Grid item xs={12} sm={6} md={3}>
+          <MetricCard
+            title="Awaiting Response"
+            value={loadingSummary ? <Skeleton width={40} /> : summary?.unacknowledgedReports || 0}
+            subtitle="Pending acknowledgement"
+            icon={<AccessTimeIcon />}
+            iconBg="#FEF3C7"
+            iconColor="#D97706"
+            trendText={summary?.unacknowledgedReports ? `${summary.unacknowledgedReports} pending` : 'All clear'}
+            trendType={summary?.unacknowledgedReports ? 'warning' : 'success'}
+          />
+        </Grid>
+
+        <Grid item xs={12} sm={6} md={3}>
+          <MetricCard
             title="Critical Incidents"
             value={loadingSummary ? <Skeleton width={40} /> : summary?.criticalIncidents || 0}
-            icon={<WarningIcon color="error" />}
-            subtitle="High Priority"
+            subtitle="High & critical priority"
+            icon={<WarningIcon />}
+            iconBg="#FEF2F2"
+            iconColor="#D32F2F"
+            trendText="Priority Alert"
+            trendType="critical"
           />
         </Grid>
 
-        <Grid item xs={12} sm={6} md={2.4}>
-          <StatCard
-            title="Unacknowledged"
-            value={loadingSummary ? <Skeleton width={40} /> : summary?.unacknowledgedReports || 0}
-            icon={<ReportProblemIcon color="secondary" />}
-            subtitle="Awaiting Review"
+        <Grid item xs={12} sm={6} md={3}>
+          <MetricCard
+            title="Operational Stations"
+            value={loadingSummary ? <Skeleton width={40} /> : summary?.activeStations || 0}
+            subtitle="Verified emergency units"
+            icon={<LocalOfferIcon />}
+            iconBg="#ECFDF5"
+            iconColor="#059669"
+            trendText="Active Units"
+            trendType="success"
           />
         </Grid>
       </Grid>
 
-      {/* Recharts Activity Line Chart */}
+      {/* Requires Attention Command Panel */}
+      {hasPermission('REPORT_READ') && (
+        <RequiresAttentionPanel reports={reports} isLoading={loadingReports} />
+      )}
+
+      {/* System Admin Agency Performance Overview */}
+      {isSysAdmin && (
+        <Box sx={{ mb: 4 }}>
+          <Typography variant="h6" fontWeight="bold" gutterBottom>
+            National Agency Response Performance
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            National platform oversight breakdown across major participating emergency services
+          </Typography>
+
+          <Grid container spacing={3}>
+            <Grid item xs={12} sm={6} md={3}>
+              <AgencyPerformanceCard
+                agencyName="Ghana Police Service"
+                agencyCode="GPS"
+                agencyType="POLICE"
+                totalIncidents={reports.filter(r => r.targetAgencyTypes?.includes('POLICE')).length}
+                unacknowledgedCount={reports.filter(r => r.targetAgencyTypes?.includes('POLICE') && r.status === 'SUBMITTED').length}
+                inProgressCount={reports.filter(r => r.targetAgencyTypes?.includes('POLICE') && r.status === 'IN_PROGRESS').length}
+                resolvedCount={reports.filter(r => r.targetAgencyTypes?.includes('POLICE') && r.status === 'RESOLVED').length}
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <AgencyPerformanceCard
+                agencyName="Ghana National Fire Service"
+                agencyCode="GNFS"
+                agencyType="FIRE"
+                totalIncidents={reports.filter(r => r.targetAgencyTypes?.includes('FIRE')).length}
+                unacknowledgedCount={reports.filter(r => r.targetAgencyTypes?.includes('FIRE') && r.status === 'SUBMITTED').length}
+                inProgressCount={reports.filter(r => r.targetAgencyTypes?.includes('FIRE') && r.status === 'IN_PROGRESS').length}
+                resolvedCount={reports.filter(r => r.targetAgencyTypes?.includes('FIRE') && r.status === 'RESOLVED').length}
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <AgencyPerformanceCard
+                agencyName="National Ambulance Service"
+                agencyCode="NAS"
+                agencyType="AMBULANCE"
+                totalIncidents={reports.filter(r => r.targetAgencyTypes?.includes('AMBULANCE')).length}
+                unacknowledgedCount={reports.filter(r => r.targetAgencyTypes?.includes('AMBULANCE') && r.status === 'SUBMITTED').length}
+                inProgressCount={reports.filter(r => r.targetAgencyTypes?.includes('AMBULANCE') && r.status === 'IN_PROGRESS').length}
+                resolvedCount={reports.filter(r => r.targetAgencyTypes?.includes('AMBULANCE') && r.status === 'RESOLVED').length}
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <AgencyPerformanceCard
+                agencyName="NADMO Emergency Service"
+                agencyCode="NADMO"
+                agencyType="DISASTER_MANAGEMENT"
+                totalIncidents={reports.filter(r => r.targetAgencyTypes?.includes('DISASTER_MANAGEMENT')).length}
+                unacknowledgedCount={reports.filter(r => r.targetAgencyTypes?.includes('DISASTER_MANAGEMENT') && r.status === 'SUBMITTED').length}
+                inProgressCount={reports.filter(r => r.targetAgencyTypes?.includes('DISASTER_MANAGEMENT') && r.status === 'IN_PROGRESS').length}
+                resolvedCount={reports.filter(r => r.targetAgencyTypes?.includes('DISASTER_MANAGEMENT') && r.status === 'RESOLVED').length}
+              />
+            </Grid>
+          </Grid>
+        </Box>
+      )}
+
+      {/* Emergency Activity Line Chart */}
       <EmergencyActivityChart />
 
       {/* Recent Incidents Table */}
       {hasPermission('REPORT_READ') && (
-        <Card>
+        <Card sx={{ mt: 4 }}>
           <CardContent sx={{ p: 3 }}>
-            <Typography variant="h6" fontWeight="bold" gutterBottom>
-              Recent Operational Incidents
-            </Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
+              <Typography variant="h6" fontWeight="bold">
+                Recent Emergency Operational Logs
+              </Typography>
+
+              <Button size="small" onClick={() => navigate('/reports')}>
+                View Full Registry
+              </Button>
+            </Box>
 
             {loadingReports ? (
               <Skeleton variant="rectangular" height={200} />
             ) : (
               <TableContainer>
-                <Table>
+                <Table size="small">
                   <TableHead>
                     <TableRow>
                       <TableCell>Reference</TableCell>
@@ -164,7 +259,9 @@ export const DashboardPage: React.FC = () => {
                         sx={{ cursor: 'pointer' }}
                         onClick={() => navigate(`/reports/${report.id}`)}
                       >
-                        <TableCell sx={{ fontWeight: 'bold' }}>{report.publicReference}</TableCell>
+                        <TableCell sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+                          {report.publicReference}
+                        </TableCell>
                         <TableCell>{report.categoryName || 'Incident'}</TableCell>
                         <TableCell>
                           <Chip
@@ -182,14 +279,18 @@ export const DashboardPage: React.FC = () => {
                           />
                         </TableCell>
                         <TableCell>
-                          <Chip label={report.status} size="small" />
+                          <Chip
+                            label={report.status}
+                            size="small"
+                            color={report.status === 'RESOLVED' ? 'success' : report.status === 'IN_PROGRESS' ? 'warning' : 'default'}
+                          />
                         </TableCell>
                         <TableCell>{new Date(report.createdAt).toLocaleString()}</TableCell>
                       </TableRow>
                     ))}
                     {reports.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={6} align="center">
+                        <TableCell colSpan={6} align="center" sx={{ py: 3 }}>
                           No recent incident reports found.
                         </TableCell>
                       </TableRow>
@@ -204,27 +305,3 @@ export const DashboardPage: React.FC = () => {
     </Box>
   );
 };
-
-const StatCard: React.FC<{
-  title: string;
-  value: React.ReactNode;
-  icon: React.ReactNode;
-  subtitle: string;
-}> = ({ title, value, icon, subtitle }) => (
-  <Card sx={{ height: '100%' }}>
-    <CardContent sx={{ p: 2.5 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-        <Typography variant="caption" color="text.secondary" fontWeight="bold">
-          {title}
-        </Typography>
-        {icon}
-      </Box>
-      <Typography variant="h4" fontWeight="bold" gutterBottom>
-        {value}
-      </Typography>
-      <Typography variant="caption" color="text.secondary">
-        {subtitle}
-      </Typography>
-    </CardContent>
-  </Card>
-);

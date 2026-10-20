@@ -7,6 +7,7 @@ import com.gec.backend.agency.entity.AgencyType;
 import com.gec.backend.agency.repository.AgencyRepository;
 import com.gec.backend.common.exception.ResourceConflictException;
 import com.gec.backend.common.exception.ResourceNotFoundException;
+import com.gec.backend.notification.service.PublicNotificationService;
 import com.gec.backend.report.dto.ReportAttachmentResponseDto;
 import com.gec.backend.report.entity.*;
 import com.gec.backend.report.repository.*;
@@ -31,6 +32,7 @@ public class AdminReportWorkflowService {
     private final ReportAttachmentRepository attachmentRepository;
     private final AgencyRepository agencyRepository;
     private final StationRepository stationRepository;
+    private final PublicNotificationService publicNotificationService;
     private final AdminScopeService scopeService;
     private final AuditService auditService;
 
@@ -42,6 +44,7 @@ public class AdminReportWorkflowService {
         ReportAttachmentRepository attachmentRepository,
         AgencyRepository agencyRepository,
         StationRepository stationRepository,
+        PublicNotificationService publicNotificationService,
         AdminScopeService scopeService,
         AuditService auditService
     ) {
@@ -52,6 +55,7 @@ public class AdminReportWorkflowService {
         this.attachmentRepository = attachmentRepository;
         this.agencyRepository = agencyRepository;
         this.stationRepository = stationRepository;
+        this.publicNotificationService = publicNotificationService;
         this.scopeService = scopeService;
         this.auditService = auditService;
     }
@@ -352,20 +356,32 @@ public class AdminReportWorkflowService {
         List<ReportAssignmentEntity> assignments = assignmentRepository.findByReportId(report.getId());
         if (assignments.isEmpty()) return;
 
+        ReportStatus previousStatus = report.getStatus();
+
         boolean allResolved = assignments.stream().allMatch(a -> a.getStatus() == ReportStatus.RESOLVED);
         boolean anyInProgress = assignments.stream().anyMatch(a -> a.getStatus() == ReportStatus.IN_PROGRESS);
         boolean anyAcknowledged = assignments.stream().anyMatch(a -> a.getStatus() == ReportStatus.ACKNOWLEDGED);
 
+        ReportStatus newStatus = previousStatus;
         if (allResolved) {
-            report.setStatus(ReportStatus.RESOLVED);
+            newStatus = ReportStatus.RESOLVED;
         } else if (anyInProgress) {
-            report.setStatus(ReportStatus.IN_PROGRESS);
+            newStatus = ReportStatus.IN_PROGRESS;
         } else if (anyAcknowledged) {
-            report.setStatus(ReportStatus.ACKNOWLEDGED);
+            newStatus = ReportStatus.ACKNOWLEDGED;
         }
 
-        report.setUpdatedAt(LocalDateTime.now());
-        reportRepository.save(report);
+        if (newStatus != previousStatus) {
+            report.setStatus(newStatus);
+            report.setUpdatedAt(LocalDateTime.now());
+            reportRepository.save(report);
+
+            try {
+                publicNotificationService.notifyReportStatusChange(report, newStatus);
+            } catch (Exception e) {
+                // Public notification failure must never roll back status update
+            }
+        }
     }
 
     private void validateStatusTransition(ReportStatus current, ReportStatus target) {

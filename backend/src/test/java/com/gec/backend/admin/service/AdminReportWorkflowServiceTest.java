@@ -7,6 +7,7 @@ import com.gec.backend.admin.security.AdminUserPrincipal;
 import com.gec.backend.agency.entity.AgencyType;
 import com.gec.backend.agency.repository.AgencyRepository;
 import com.gec.backend.common.exception.ResourceConflictException;
+import com.gec.backend.notification.service.PublicNotificationService;
 import com.gec.backend.report.entity.*;
 import com.gec.backend.report.repository.*;
 import com.gec.backend.station.repository.StationRepository;
@@ -31,11 +32,12 @@ class AdminReportWorkflowServiceTest {
     private final ReportAttachmentRepository attachmentRepository = Mockito.mock(ReportAttachmentRepository.class);
     private final AgencyRepository agencyRepository = Mockito.mock(AgencyRepository.class);
     private final StationRepository stationRepository = Mockito.mock(StationRepository.class);
+    private final PublicNotificationService publicNotificationService = Mockito.mock(PublicNotificationService.class);
     private final AdminScopeService scopeService = Mockito.mock(AdminScopeService.class);
     private final AuditService auditService = Mockito.mock(AuditService.class);
 
     private final AdminReportWorkflowService workflowService = new AdminReportWorkflowService(
-        reportRepository, categoryRepository, assignmentRepository, historyRepository, attachmentRepository, agencyRepository, stationRepository, scopeService, auditService
+        reportRepository, categoryRepository, assignmentRepository, historyRepository, attachmentRepository, agencyRepository, stationRepository, publicNotificationService, scopeService, auditService
     );
 
     private final UUID reportId = UUID.randomUUID();
