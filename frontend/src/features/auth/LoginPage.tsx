@@ -15,6 +15,8 @@ import {
   Grid,
   IconButton,
   InputAdornment,
+  Tab,
+  Tabs,
   TextField,
   Typography,
 } from '@mui/material';
@@ -26,6 +28,7 @@ import QrCodeIcon from '@mui/icons-material/QrCode';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DownloadIcon from '@mui/icons-material/Download';
 import KeyIcon from '@mui/icons-material/Key';
+import VpnKeyIcon from '@mui/icons-material/VpnKey';
 import { QRCodeSVG } from 'qrcode.react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -34,6 +37,7 @@ import { useNavigate } from 'react-router-dom';
 import { authApi } from '@/api/authApi';
 import { useAuthStore } from '@/auth/useAuthStore';
 import { LoginResponse } from '@/types';
+import { TotpCodeInput } from './TotpCodeInput';
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -43,16 +47,15 @@ const loginSchema = z.object({
 type LoginFormData = z.infer<typeof loginSchema>;
 
 export const LoginPage: React.FC = () => {
+  const [loginMethodTab, setLoginMethodTab] = useState<0 | 1>(0); // 0 = Password, 1 = Direct Authenticator
+  const [totpEmail, setTotpEmail] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // MFA Login State
+  // MFA Challenge State (used during enrollment)
   const [authState, setAuthState] = useState<'LOGIN' | 'MFA_REQUIRED' | 'MFA_SETUP_REQUIRED'>('LOGIN');
   const [mfaChallenge, setMfaChallenge] = useState<string | null>(null);
-  const [totpCode, setTotpCode] = useState('');
-  const [useRecoveryCode, setUseRecoveryCode] = useState(false);
-  const [recoveryCodeInput, setRecoveryCodeInput] = useState('');
 
   // MFA Setup Modal State
   const [setupOpen, setSetupOpen] = useState(false);
@@ -65,7 +68,7 @@ export const LoginPage: React.FC = () => {
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
   const [savedCodesChecked, setSavedCodesChecked] = useState(false);
 
-  const [pendingLoginResp, setPendingLoginResp] = useState<LoginResponse | null>(null);
+  const [, setPendingLoginResp] = useState<LoginResponse | null>(null);
 
   const navigate = useNavigate();
   const setAuth = useAuthStore((state) => state.setAuth);
@@ -78,6 +81,10 @@ export const LoginPage: React.FC = () => {
     resolver: zodResolver(loginSchema),
   });
 
+  /**
+   * Method 1: Password-only authentication.
+   * Creates an authenticated session directly upon valid password verification (NO TOTP prompt afterwards).
+   */
   const onPasswordSubmit = async (data: LoginFormData) => {
     setErrorMessage(null);
     setIsSubmitting(true);
@@ -85,10 +92,7 @@ export const LoginPage: React.FC = () => {
       const response = await authApi.login(data);
       setPendingLoginResp(response);
 
-      if (response.authenticationState === 'MFA_REQUIRED') {
-        setMfaChallenge(response.mfaChallenge || null);
-        setAuthState('MFA_REQUIRED');
-      } else if (response.authenticationState === 'MFA_SETUP_REQUIRED') {
+      if (response.authenticationState === 'MFA_SETUP_REQUIRED') {
         setMfaChallenge(response.mfaChallenge || null);
         setAuthState('MFA_SETUP_REQUIRED');
       } else if (response.accessToken) {
@@ -106,34 +110,31 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  const onMfaVerifySubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  /**
+   * Method 2: Direct Authenticator Code authentication.
+   * Validates 6-digit TOTP code and logs user directly into Command Portal (NO password prompt required).
+   */
+  const handleDirectTotpAutoSubmit = async (code: string) => {
+    if (!totpEmail || !totpEmail.includes('@')) {
+      setErrorMessage('Please enter your authorized admin email address first.');
+      return;
+    }
+
     setErrorMessage(null);
     setIsSubmitting(true);
-
     try {
-      let response: LoginResponse;
-      if (useRecoveryCode) {
-        response = await authApi.verifyMfaRecovery(mfaChallenge!, recoveryCodeInput);
-      } else {
-        response = await authApi.verifyMfaTotp(mfaChallenge!, totpCode);
-      }
-
+      const response = await authApi.loginWithTotpDirect(totpEmail, code);
       if (response.accessToken) {
         setAuth(response.accessToken, response.user, response.roles, response.permissions);
         navigate('/');
       }
     } catch (e: any) {
-      setErrorMessage(e.response?.data?.message || 'Verification failed. Please check your code.');
+      setErrorMessage(e.response?.data?.message || 'Incorrect or expired authenticator code. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  /**
-   * Requests TOTP setup credentials from the backend using the pre-authentication challenge.
-   * The returned provisioning URI is used strictly to render the QR code SVG and is never displayed as text.
-   */
   const startTotpSetupFlow = async () => {
     setErrorMessage(null);
     try {
@@ -164,12 +165,11 @@ export const LoginPage: React.FC = () => {
   };
 
   const handleFinishMfaSetup = () => {
-    // Memory cleanup: clear sensitive setup secrets
     setSetupSecret('');
     setProvisioningUri('');
     setConfirmCode('');
     setSetupOpen(false);
-    setAuthState('MFA_REQUIRED');
+    setAuthState('LOGIN');
   };
 
   const handleCopySetupKey = () => {
@@ -239,110 +239,87 @@ export const LoginPage: React.FC = () => {
             )}
 
             {authState === 'LOGIN' && (
-              <form onSubmit={handleSubmit(onPasswordSubmit)}>
-                <TextField
-                  fullWidth
-                  label="Authorized Admin Email"
-                  type="email"
-                  margin="normal"
-                  {...register('email')}
-                  error={Boolean(errors.email)}
-                  helperText={errors.email?.message}
-                  disabled={isSubmitting}
-                />
-
-                <TextField
-                  fullWidth
-                  label="Password"
-                  type={showPassword ? 'text' : 'password'}
-                  margin="normal"
-                  {...register('password')}
-                  error={Boolean(errors.password)}
-                  helperText={errors.password?.message}
-                  disabled={isSubmitting}
-                  InputProps={{
-                    endAdornment: (
-                      <InputAdornment position="end">
-                        <IconButton onClick={() => setShowPassword(!showPassword)} edge="end">
-                          {showPassword ? <VisibilityOff /> : <Visibility />}
-                        </IconButton>
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-
-                <Button
-                  type="submit"
-                  fullWidth
-                  variant="contained"
-                  size="large"
-                  disabled={isSubmitting}
-                  startIcon={<LockOutlinedIcon />}
-                  sx={{ mt: 3, mb: 1, py: 1.5, fontSize: '1rem', fontWeight: 'bold' }}
-                >
-                  {isSubmitting ? 'Signing In...' : 'Sign In to Command Portal'}
-                </Button>
-              </form>
-            )}
-
-            {authState === 'MFA_REQUIRED' && (
-              <form onSubmit={onMfaVerifySubmit}>
-                <Box sx={{ textAlign: 'center', mb: 2 }}>
-                  <ShieldIcon color="primary" sx={{ fontSize: 40, mb: 1 }} />
-                  <Typography variant="h6" fontWeight="bold">
-                    Two-Step Verification
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Enter the 6-digit verification code from your authenticator app.
-                  </Typography>
+              <Box>
+                {/* Method Tabs: Password OR Authenticator Code */}
+                <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+                  <Tabs
+                    value={loginMethodTab}
+                    onChange={(_, val) => {
+                      setLoginMethodTab(val);
+                      setErrorMessage(null);
+                    }}
+                    variant="fullWidth"
+                  >
+                    <Tab label="Password" icon={<LockOutlinedIcon fontSize="small" />} iconPosition="start" />
+                    <Tab label="Authenticator" icon={<VpnKeyIcon fontSize="small" />} iconPosition="start" />
+                  </Tabs>
                 </Box>
 
-                {!useRecoveryCode ? (
-                  <TextField
-                    fullWidth
-                    label="6-Digit Authenticator Code"
-                    placeholder="123456"
-                    value={totpCode}
-                    onChange={(e) => setTotpCode(e.target.value)}
-                    margin="normal"
-                    required
-                    inputProps={{ maxLength: 6, autoComplete: 'one-time-code' }}
-                  />
+                {loginMethodTab === 0 ? (
+                  <form onSubmit={handleSubmit(onPasswordSubmit)}>
+                    <TextField
+                      fullWidth
+                      label="Authorized Admin Email"
+                      type="email"
+                      margin="normal"
+                      {...register('email')}
+                      error={Boolean(errors.email)}
+                      helperText={errors.email?.message}
+                      disabled={isSubmitting}
+                    />
+
+                    <TextField
+                      fullWidth
+                      label="Password"
+                      type={showPassword ? 'text' : 'password'}
+                      margin="normal"
+                      {...register('password')}
+                      error={Boolean(errors.password)}
+                      helperText={errors.password?.message}
+                      disabled={isSubmitting}
+                      InputProps={{
+                        endAdornment: (
+                          <InputAdornment position="end">
+                            <IconButton onClick={() => setShowPassword(!showPassword)} edge="end">
+                              {showPassword ? <VisibilityOff /> : <Visibility />}
+                            </IconButton>
+                          </InputAdornment>
+                        ),
+                      }}
+                    />
+
+                    <Button
+                      type="submit"
+                      fullWidth
+                      variant="contained"
+                      size="large"
+                      disabled={isSubmitting}
+                      startIcon={<LockOutlinedIcon />}
+                      sx={{ mt: 3, mb: 1, py: 1.5, fontSize: '1rem', fontWeight: 'bold' }}
+                    >
+                      {isSubmitting ? 'Signing In...' : 'Sign In with Password'}
+                    </Button>
+                  </form>
                 ) : (
-                  <TextField
-                    fullWidth
-                    label="Single-Use Recovery Code"
-                    placeholder="ABCD-EFGH-IJKL"
-                    value={recoveryCodeInput}
-                    onChange={(e) => setRecoveryCodeInput(e.target.value.toUpperCase())}
-                    margin="normal"
-                    required
-                  />
+                  <Box>
+                    <TextField
+                      fullWidth
+                      label="Authorized Admin Email"
+                      type="email"
+                      margin="normal"
+                      value={totpEmail}
+                      onChange={(e) => setTotpEmail(e.target.value)}
+                      disabled={isSubmitting}
+                    />
+
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 2, textAlign: 'center' }}>
+                      Enter 6-digit code from your authenticator app:
+                    </Typography>
+
+                    <TotpCodeInput disabled={isSubmitting || !totpEmail.includes('@')} onComplete={handleDirectTotpAutoSubmit} />
+                  </Box>
                 )}
-
-                <Button
-                  type="submit"
-                  fullWidth
-                  variant="contained"
-                  size="large"
-                  disabled={isSubmitting}
-                  sx={{ mt: 3, mb: 1.5, py: 1.5, fontWeight: 'bold' }}
-                >
-                  {isSubmitting ? 'Verifying...' : 'Verify & Continue'}
-                </Button>
-
-                <Button
-                  fullWidth
-                  variant="text"
-                  size="small"
-                  onClick={() => {
-                    setUseRecoveryCode(!useRecoveryCode);
-                    setErrorMessage(null);
-                  }}
-                >
-                  {useRecoveryCode ? 'Use Authenticator Code Instead' : 'Use a Single-Use Recovery Code'}
-                </Button>
-              </form>
+              </Box>
             )}
 
             {authState === 'MFA_SETUP_REQUIRED' && (

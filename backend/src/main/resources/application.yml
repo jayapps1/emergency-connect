@@ -32,6 +32,17 @@ spring:
     repair-before-migrate: true
 
 app:
+  operations:
+    sla:
+      acknowledgement:
+        attention-minutes: 3
+        delayed-minutes: 5
+      response-start:
+        attention-minutes: 7
+        delayed-minutes: 10
+      scheduler:
+        interval-seconds: 60
+
   sms:
     provider: ARKESEL
     simulation-enabled: ${GEC_SMS_SIMULATION_ENABLED:false}

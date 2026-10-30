@@ -13,6 +13,11 @@ import org.springframework.stereotype.Service;
 
 import java.util.*;
 
+/**
+ * System Admin review queries are restricted to the explicitly selected agency.
+ * Review statistics are derived exclusively from persisted citizen
+ * reviews belonging to the agency's assignments.
+ */
 @Service
 public class AdminReviewService {
 
@@ -33,16 +38,17 @@ public class AdminReviewService {
         this.scopeService = scopeService;
     }
 
-    public Page<Map<String, Object>> getAdminReviews(UUID stationId, Short rating, Pageable pageable) {
+    public Page<Map<String, Object>> getAdminReviews(UUID agencyIdParam, UUID stationId, Short rating, Pageable pageable) {
         AdminUserPrincipal principal = scopeService.getCurrentPrincipal();
-        UUID targetAgencyId = scopeService.isSystemAdmin() ? null : principal.getAgencyId();
+        UUID targetAgencyId = scopeService.isSystemAdmin() ? agencyIdParam : principal.getAgencyId();
 
-        List<IncidentResponseReviewEntity> allReviews;
-        if (targetAgencyId != null) {
-            allReviews = reviewRepository.findByAgencyId(targetAgencyId);
-        } else {
-            allReviews = reviewRepository.findAll();
+        if (scopeService.isSystemAdmin() && agencyIdParam == null) {
+            return new PageImpl<>(Collections.emptyList(), pageable, 0);
         }
+
+        List<IncidentResponseReviewEntity> allReviews = targetAgencyId != null
+            ? reviewRepository.findByAgencyId(targetAgencyId)
+            : Collections.emptyList();
 
         List<Map<String, Object>> filtered = allReviews.stream()
             .filter(r -> rating == null || r.getRating() == rating.shortValue())
@@ -57,25 +63,32 @@ public class AdminReviewService {
         return new PageImpl<>(pageContent, pageable, filtered.size());
     }
 
-    public Map<String, Object> getAdminReviewSummary() {
+    public Map<String, Object> getAdminReviewSummary(UUID agencyIdParam) {
         AdminUserPrincipal principal = scopeService.getCurrentPrincipal();
-        UUID targetAgencyId = scopeService.isSystemAdmin() ? null : principal.getAgencyId();
+        UUID targetAgencyId = scopeService.isSystemAdmin() ? agencyIdParam : principal.getAgencyId();
 
-        List<IncidentResponseReviewEntity> allReviews;
-        if (targetAgencyId != null) {
-            allReviews = reviewRepository.findByAgencyId(targetAgencyId);
-        } else {
-            allReviews = reviewRepository.findAll();
+        if (scopeService.isSystemAdmin() && agencyIdParam == null) {
+            Map<String, Object> emptyMap = new HashMap<>();
+            emptyMap.put("averageRating", null);
+            emptyMap.put("totalReviews", 0);
+            emptyMap.put("fiveStarCount", 0);
+            emptyMap.put("ratingDistribution", Map.of("1", 0, "2", 0, "3", 0, "4", 0, "5", 0));
+            emptyMap.put("byStation", Collections.emptyList());
+            return emptyMap;
         }
 
+        List<IncidentResponseReviewEntity> allReviews = targetAgencyId != null
+            ? reviewRepository.findByAgencyId(targetAgencyId)
+            : Collections.emptyList();
+
         if (allReviews.isEmpty()) {
-            return Map.of(
-                "averageRating", 0.0,
-                "totalReviews", 0,
-                "fiveStarCount", 0,
-                "ratingDistribution", Map.of("1", 0, "2", 0, "3", 0, "4", 0, "5", 0),
-                "byStation", Collections.emptyList()
-            );
+            Map<String, Object> emptyMap = new HashMap<>();
+            emptyMap.put("averageRating", null);
+            emptyMap.put("totalReviews", 0);
+            emptyMap.put("fiveStarCount", 0);
+            emptyMap.put("ratingDistribution", Map.of("1", 0, "2", 0, "3", 0, "4", 0, "5", 0));
+            emptyMap.put("byStation", Collections.emptyList());
+            return emptyMap;
         }
 
         double sum = allReviews.stream().mapToInt(IncidentResponseReviewEntity::getRating).sum();
@@ -88,12 +101,12 @@ public class AdminReviewService {
             dist.put(String.valueOf(star), (int) allReviews.stream().filter(r -> r.getRating() == star).count());
         }
 
-        return Map.of(
-            "averageRating", avg,
-            "totalReviews", allReviews.size(),
-            "fiveStarCount", fiveStar,
-            "ratingDistribution", dist
-        );
+        Map<String, Object> result = new HashMap<>();
+        result.put("averageRating", avg);
+        result.put("totalReviews", allReviews.size());
+        result.put("fiveStarCount", fiveStar);
+        result.put("ratingDistribution", dist);
+        return result;
     }
 
     private Map<String, Object> mapToReviewDto(IncidentResponseReviewEntity review) {

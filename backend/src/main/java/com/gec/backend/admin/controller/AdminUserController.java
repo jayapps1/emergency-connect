@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -38,5 +39,32 @@ public class AdminUserController {
     @PreAuthorize("hasAuthority('ADMIN_USER_CREATE')")
     public ResponseEntity<CreateUserResponse> createUser(@Valid @RequestBody CreateAdminUserRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(userService.createUser(request));
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('ADMIN_USER_UPDATE')")
+    public ResponseEntity<AdminUserResponse> updateUser(
+        @PathVariable UUID id,
+        @Valid @RequestBody CreateAdminUserRequest request
+    ) {
+        return ResponseEntity.ok(userService.updateUser(id, request));
+    }
+
+    @PostMapping("/{id}/deactivate")
+    @PreAuthorize("hasAuthority('ADMIN_USER_DELETE')")
+    public ResponseEntity<AdminUserResponse> deactivateUser(@PathVariable UUID id) {
+        return ResponseEntity.ok(userService.deactivateUser(id));
+    }
+
+    @PostMapping("/{id}/reactivate")
+    @PreAuthorize("hasAuthority('ADMIN_USER_UPDATE')")
+    public ResponseEntity<AdminUserResponse> reactivateUser(@PathVariable UUID id) {
+        return ResponseEntity.ok(userService.reactivateUser(id));
+    }
+
+    @PostMapping("/{id}/reset-password")
+    @PreAuthorize("hasAuthority('ADMIN_USER_UPDATE')")
+    public ResponseEntity<Map<String, String>> resetUserPassword(@PathVariable UUID id) {
+        return ResponseEntity.ok(userService.resetUserPassword(id));
     }
 }

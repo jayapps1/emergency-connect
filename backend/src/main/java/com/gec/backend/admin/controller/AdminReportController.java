@@ -2,6 +2,7 @@ package com.gec.backend.admin.controller;
 
 import com.gec.backend.admin.dto.*;
 import com.gec.backend.admin.service.AdminReportWorkflowService;
+import com.gec.backend.admin.service.ResponderAssignmentService;
 import com.gec.backend.report.dto.ReportAttachmentResponseDto;
 import com.gec.backend.report.service.IncidentReportService;
 import jakarta.validation.Valid;
@@ -9,7 +10,6 @@ import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -24,10 +24,16 @@ public class AdminReportController {
 
     private final AdminReportWorkflowService reportWorkflowService;
     private final IncidentReportService reportService;
+    private final ResponderAssignmentService responderAssignmentService;
 
-    public AdminReportController(AdminReportWorkflowService reportWorkflowService, IncidentReportService reportService) {
+    public AdminReportController(
+        AdminReportWorkflowService reportWorkflowService,
+        IncidentReportService reportService,
+        ResponderAssignmentService responderAssignmentService
+    ) {
         this.reportWorkflowService = reportWorkflowService;
         this.reportService = reportService;
+        this.responderAssignmentService = responderAssignmentService;
     }
 
     @GetMapping
@@ -101,5 +107,36 @@ public class AdminReportController {
     ) {
         String note = body != null ? body.get("note") : null;
         return ResponseEntity.ok(reportWorkflowService.promptAgency(reportId, note));
+    }
+
+    @GetMapping("/{reportId}/eligible-responders")
+    @PreAuthorize("hasAuthority('REPORT_READ')")
+    public ResponseEntity<List<EligibleResponderResponseDto>> getEligibleResponders(@PathVariable UUID reportId) {
+        return ResponseEntity.ok(responderAssignmentService.getEligibleResponders(reportId));
+    }
+
+    @GetMapping("/{reportId}/responders")
+    @PreAuthorize("hasAuthority('REPORT_READ')")
+    public ResponseEntity<List<ResponderAssignmentResponseDto>> getAssignedResponders(@PathVariable UUID reportId) {
+        return ResponseEntity.ok(responderAssignmentService.getAssignedResponders(reportId));
+    }
+
+    @PostMapping("/{reportId}/responders")
+    @PreAuthorize("hasAuthority('REPORT_ASSIGN')")
+    public ResponseEntity<ResponderAssignmentResponseDto> assignResponder(
+        @PathVariable UUID reportId,
+        @Valid @RequestBody AssignResponderRequest request
+    ) {
+        return ResponseEntity.ok(responderAssignmentService.assignResponder(reportId, request));
+    }
+
+    @DeleteMapping("/{reportId}/responders/{assignmentId}")
+    @PreAuthorize("hasAuthority('REPORT_ASSIGN')")
+    public ResponseEntity<Void> releaseResponder(
+        @PathVariable UUID reportId,
+        @PathVariable UUID assignmentId
+    ) {
+        responderAssignmentService.releaseResponder(reportId, assignmentId);
+        return ResponseEntity.noContent().build();
     }
 }

@@ -17,5 +17,21 @@ public record AdminReportSummaryResponse(
     IncidentSeverity severity,
     ReportStatus status,
     LocalDateTime createdAt,
-    Set<AgencyType> targetAgencyTypes
-) {}
+    Set<AgencyType> targetAgencyTypes,
+    String acknowledgementSlaState,
+    String responseStartSlaState
+) {
+    public AdminReportSummaryResponse(
+        UUID id,
+        String publicReference,
+        UUID categoryId,
+        String categoryName,
+        ReportMode mode,
+        IncidentSeverity severity,
+        ReportStatus status,
+        LocalDateTime createdAt,
+        Set<AgencyType> targetAgencyTypes
+    ) {
+        this(id, publicReference, categoryId, categoryName, mode, severity, status, createdAt, targetAgencyTypes, "ON_TIME", "ON_TIME");
+    }
+}

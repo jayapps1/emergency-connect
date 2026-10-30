@@ -23,16 +23,19 @@ public class AdminReviewController {
     @GetMapping
     @PreAuthorize("hasAuthority('REPORT_READ')")
     public ResponseEntity<Page<Map<String, Object>>> getAdminReviews(
+        @RequestParam(required = false) UUID agencyId,
         @RequestParam(required = false) UUID stationId,
         @RequestParam(required = false) Short rating,
         Pageable pageable
     ) {
-        return ResponseEntity.ok(reviewService.getAdminReviews(stationId, rating, pageable));
+        return ResponseEntity.ok(reviewService.getAdminReviews(agencyId, stationId, rating, pageable));
     }
 
     @GetMapping("/summary")
     @PreAuthorize("hasAuthority('REPORT_READ')")
-    public ResponseEntity<Map<String, Object>> getAdminReviewSummary() {
-        return ResponseEntity.ok(reviewService.getAdminReviewSummary());
+    public ResponseEntity<Map<String, Object>> getAdminReviewSummary(
+        @RequestParam(required = false) UUID agencyId
+    ) {
+        return ResponseEntity.ok(reviewService.getAdminReviewSummary(agencyId));
     }
 }

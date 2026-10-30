@@ -4,9 +4,10 @@ import com.gec.backend.admin.entity.AdminUserEntity;
 import com.gec.backend.admin.security.AdminScopeService;
 import com.gec.backend.admin.security.AdminUserPrincipal;
 import com.gec.backend.admin.service.AuditService;
+import com.gec.backend.appliance.repository.ResponseApplianceRepository;
+import com.gec.backend.common.exception.ResourceNotFoundException;
 import com.gec.backend.reference.repository.DistrictRefRepository;
 import com.gec.backend.reference.repository.RegionRefRepository;
-import com.gec.backend.station.dto.StationResponse;
 import com.gec.backend.station.entity.StationEntity;
 import com.gec.backend.station.mapper.StationMapper;
 import com.gec.backend.station.repository.StationContactRepository;
@@ -15,8 +16,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
-import java.util.List;
-import java.util.Set;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -28,7 +28,8 @@ class StationAdminSecurityTest {
     private final StationContactRepository contactRepository = Mockito.mock(StationContactRepository.class);
     private final RegionRefRepository regionRefRepository = Mockito.mock(RegionRefRepository.class);
     private final DistrictRefRepository districtRefRepository = Mockito.mock(DistrictRefRepository.class);
-    private final StationMapper stationMapper = new StationMapper();
+    private final ResponseApplianceRepository applianceRepository = Mockito.mock(ResponseApplianceRepository.class);
+    private final StationMapper stationMapper = new StationMapper(applianceRepository);
     private final AdminScopeService scopeService = Mockito.mock(AdminScopeService.class);
     private final AuditService auditService = Mockito.mock(AuditService.class);
 
@@ -44,27 +45,29 @@ class StationAdminSecurityTest {
     void setUp() {
         AdminUserEntity admin = new AdminUserEntity();
         admin.setId(userId);
-        admin.setEmail("stationadmin@gnfs.gov.gh");
+        admin.setEmail("admin@gec.gov.gh");
         admin.setAgencyId(agencyId);
-        admin.setStationId(stationId);
-        admin.setRoles(Set.of());
-
         AdminUserPrincipal principal = new AdminUserPrincipal(admin);
         given(scopeService.getCurrentPrincipal()).willReturn(principal);
-        given(scopeService.isSystemAdmin()).willReturn(false);
     }
 
     @Test
-    void getActiveVerifiedStationsByAgency_returnsActiveStations() {
-        StationEntity station = new StationEntity(
-            stationId, agencyId, "Makola Fire Station", "GNFS-MAK-01", "Greater Accra", "Accra Metropolitan", "Makola", 5.55, -0.20, 10.0, true, true
+    void getStationDetails_whenStationBelongsToDifferentAgency_throwsResourceNotFoundException() {
+        UUID otherAgencyStationId = UUID.randomUUID();
+        UUID otherAgencyId = UUID.randomUUID();
+
+        StationEntity otherStation = new StationEntity(
+            otherAgencyStationId, otherAgencyId, "Other Station", "OTHER-01",
+            "Greater Accra", "Accra", "Makola", 5.55, -0.20, 10.0, true, true
         );
-        given(stationRepository.findByAgencyIdAndActiveTrueAndVerifiedTrue(agencyId)).willReturn(List.of(station));
 
-        List<StationResponse> stations = stationService.getActiveVerifiedStationsByAgency(agencyId);
+        given(stationRepository.findById(otherAgencyStationId)).willReturn(Optional.of(otherStation));
+        given(scopeService.isSystemAdmin()).willReturn(false);
+        Mockito.doThrow(new ResourceNotFoundException("Not found"))
+            .when(scopeService).validateAgencyScope(otherAgencyId);
 
-        assertNotNull(stations);
-        assertEquals(1, stations.size());
-        assertEquals("GNFS-MAK-01", stations.get(0).code());
+        assertThrows(ResourceNotFoundException.class, () -> {
+            stationService.getStationDetails(otherAgencyStationId);
+        });
     }
 }

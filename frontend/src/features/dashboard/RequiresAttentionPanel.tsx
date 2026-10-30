@@ -17,6 +17,7 @@ import {
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import ShieldIcon from '@mui/icons-material/Shield';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import { AdminReportSummary } from '@/types';
 import { useNavigate } from 'react-router-dom';
 
@@ -32,7 +33,7 @@ export const RequiresAttentionPanel: React.FC<RequiresAttentionPanelProps> = ({
   const navigate = useNavigate();
 
   const urgentReports = reports.filter(
-    (r) => r.status === 'SUBMITTED' || r.status === 'RECEIVED' || r.severity === 'CRITICAL'
+    (r) => r.status === 'SUBMITTED' || r.status === 'RECEIVED' || r.status === 'ASSIGNED' || r.severity === 'CRITICAL'
   );
 
   return (
@@ -79,8 +80,8 @@ export const RequiresAttentionPanel: React.FC<RequiresAttentionPanelProps> = ({
                   <TableCell>Reference</TableCell>
                   <TableCell>Category</TableCell>
                   <TableCell>Severity</TableCell>
-                  <TableCell>Target Agencies</TableCell>
-                  <TableCell>Status</TableCell>
+                  <TableCell>SLA Status</TableCell>
+                  <TableCell>Workflow Status</TableCell>
                   <TableCell>Elapsed Time</TableCell>
                   <TableCell align="right">Action</TableCell>
                 </TableRow>
@@ -88,6 +89,9 @@ export const RequiresAttentionPanel: React.FC<RequiresAttentionPanelProps> = ({
               <TableBody>
                 {urgentReports.slice(0, 5).map((report) => {
                   const elapsedMins = Math.max(0, Math.floor((Date.now() - new Date(report.createdAt).getTime()) / 60000));
+                  const isDelayed = report.acknowledgementSlaState === 'DELAYED' || elapsedMins >= 5;
+                  const isAttention = report.acknowledgementSlaState === 'ATTENTION' || elapsedMins >= 3;
+
                   return (
                     <TableRow key={report.id} hover>
                       <TableCell sx={{ fontWeight: 'bold', color: 'primary.main', cursor: 'pointer' }} onClick={() => navigate(`/reports/${report.id}`)}>
@@ -102,16 +106,17 @@ export const RequiresAttentionPanel: React.FC<RequiresAttentionPanelProps> = ({
                         />
                       </TableCell>
                       <TableCell>
-                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                          {report.targetAgencyTypes?.map((ag) => (
-                            <Chip key={ag} icon={<ShieldIcon />} label={ag} size="small" variant="outlined" />
-                          ))}
-                        </Box>
+                        <Chip
+                          icon={<AccessTimeIcon />}
+                          label={isDelayed ? 'DELAYED' : isAttention ? 'ATTENTION' : 'ON TIME'}
+                          color={isDelayed ? 'error' : isAttention ? 'warning' : 'success'}
+                          size="small"
+                        />
                       </TableCell>
                       <TableCell>
-                        <Chip label={report.status} color="warning" size="small" />
+                        <Chip label={report.status} color="warning" size="small" variant="outlined" />
                       </TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', color: elapsedMins > 10 ? 'error.main' : 'text.primary' }}>
+                      <TableCell sx={{ fontWeight: 'bold', color: elapsedMins > 5 ? 'error.main' : 'text.primary' }}>
                         ● {elapsedMins} min waiting
                       </TableCell>
                       <TableCell align="right">

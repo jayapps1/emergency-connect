@@ -21,6 +21,7 @@ import LocationOnIcon from '@mui/icons-material/LocationOn';
 import MapIcon from '@mui/icons-material/Map';
 import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
 import CloseIcon from '@mui/icons-material/Close';
+import { StationLocationMap } from './StationLocationMap';
 
 interface LocationPickerModalProps {
   open: boolean;
@@ -52,11 +53,9 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
   regionName,
   districtName,
 }) => {
-  const mapRef = useRef<HTMLDivElement | null>(null);
-  const googleMapRef = useRef<any>(null);
-  const markerRef = useRef<any>(null);
   const autocompleteServiceRef = useRef<any>(null);
   const placesServiceRef = useRef<any>(null);
+  const searchRequestIdRef = useRef<number>(0);
 
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
@@ -67,6 +66,9 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
   const [selectedPlaceInfo, setSelectedPlaceInfo] = useState<{ name: string; address?: string; plusCode?: string } | null>(null);
+
+  // Map revision counter to remount canvas cleanly on accepted search results
+  const [mapRevision, setMapRevision] = useState(0);
 
   // Single authoritative temporary selection state
   const [selectedLocation, setSelectedLocation] = useState<{ lat: number; lng: number } | null>(
@@ -100,10 +102,11 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
       setSearchQuery('');
       setSuggestions([]);
       setLocalitySuggestion(undefined);
+      setMapRevision((prev) => prev + 1);
     }
   }, [open, initialLat, initialLng]);
 
-  // Load Google Maps & Places Libraries
+  // Load Google Maps & Places Libraries (Singleton script loader)
   useEffect(() => {
     if (!open) return;
 
@@ -136,52 +139,19 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
     }
   }, [open, apiKey]);
 
-  const createMarker = (lat: number, lng: number, map: any) => {
-    const marker = new window.google.maps.Marker({
-      position: { lat, lng },
-      map,
-      draggable: true,
-      title: 'Emergency Station Location',
-    });
-    markerRef.current = marker;
-
-    marker.addListener('dragend', (event: any) => {
-      const eventLat = event.latLng?.lat();
-      const eventLng = event.latLng?.lng();
-      if (eventLat != null && eventLng != null) {
-        const dragLat = parseFloat(eventLat.toFixed(6));
-        const dragLng = parseFloat(eventLng.toFixed(6));
-        console.log('Selected place coordinates (drag):', dragLat, dragLng);
-        setSelectedLocation({ lat: dragLat, lng: dragLng });
-        setManualLat(String(dragLat));
-        setManualLng(String(dragLng));
-        setValidationError(null);
-        reverseGeocode(dragLat, dragLng);
+  // Initialize Places & Autocomplete Services
+  useEffect(() => {
+    if (mapLoaded && window.google?.maps?.places) {
+      if (!autocompleteServiceRef.current) {
+        autocompleteServiceRef.current = new window.google.maps.places.AutocompleteService();
       }
-    });
-  };
-
-  const updateLocationFromCoordinates = (lat: number, lng: number, mapInstance?: any) => {
-    const roundedLat = parseFloat(lat.toFixed(6));
-    const roundedLng = parseFloat(lng.toFixed(6));
-
-    console.log('Selected place coordinates (click/manual):', roundedLat, roundedLng);
-
-    setSelectedLocation({ lat: roundedLat, lng: roundedLng });
-    setManualLat(String(roundedLat));
-    setManualLng(String(roundedLng));
-    setValidationError(null);
-
-    const map = mapInstance || googleMapRef.current;
-    if (markerRef.current) {
-      markerRef.current.setPosition({ lat: roundedLat, lng: roundedLng });
-    } else if (map && window.google?.maps) {
-      createMarker(roundedLat, roundedLng, map);
     }
-  };
+  }, [mapLoaded]);
 
-  // Centralized place location application function
-  const applyPlaceLocation = (place: any) => {
+  // Apply place result securely with request sequencing
+  const applyPlaceLocation = (place: any, requestId: number) => {
+    if (requestId !== searchRequestIdRef.current) return;
+
     let lat: number | null = null;
     let lng: number | null = null;
     const displayName = place.name || place.displayName || searchQuery;
@@ -192,7 +162,6 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
       place.plus_code?.compound_code ||
       place.plusCode?.compoundCode ||
       '';
-    const viewport = place.geometry?.viewport || place.viewport;
 
     if (place.geometry?.location) {
       lat = typeof place.geometry.location.lat === 'function' ? place.geometry.location.lat() : place.geometry.location.lat;
@@ -210,8 +179,6 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
     const roundedLat = parseFloat(lat.toFixed(6));
     const roundedLng = parseFloat(lng.toFixed(6));
 
-    console.log('Selected place coordinates:', roundedLat, roundedLng);
-
     setSelectedLocation({ lat: roundedLat, lng: roundedLng });
     setManualLat(String(roundedLat));
     setManualLng(String(roundedLng));
@@ -224,105 +191,20 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
       plusCode: plusCode || undefined,
     });
 
-    const map = googleMapRef.current;
-    if (markerRef.current) {
-      markerRef.current.setPosition({ lat: roundedLat, lng: roundedLng });
-    } else if (map && window.google?.maps) {
-      createMarker(roundedLat, roundedLng, map);
-    }
-
-    if (map) {
-      if (viewport) {
-        map.fitBounds(viewport);
-      } else {
-        map.setCenter({ lat: roundedLat, lng: roundedLng });
-        map.setZoom(17);
-      }
-    }
-
+    // Increment map revision to mount fresh Google Map instance at new center
+    setMapRevision((prev) => prev + 1);
     reverseGeocode(roundedLat, roundedLng);
   };
 
-  // Initialize Map and Places Services
-  useEffect(() => {
-    if (!open || !mapLoaded || !mapRef.current || !window.google?.maps) return;
+  const handleLocationSelectFromMap = (lat: number, lng: number) => {
+    setSelectedLocation({ lat, lng });
+    setManualLat(String(lat));
+    setManualLng(String(lng));
+    setValidationError(null);
+    reverseGeocode(lat, lng);
+  };
 
-    const hasInitialCoords = initialLat != null && initialLng != null && !isNaN(initialLat) && !isNaN(initialLng);
-    const defaultLat = hasInitialCoords ? initialLat! : 7.9465; // Ghana center
-    const defaultLng = hasInitialCoords ? initialLng! : -1.0232;
-    const defaultZoom = hasInitialCoords ? 15 : 7;
-
-    const mapOptions = {
-      center: { lat: defaultLat, lng: defaultLng },
-      zoom: defaultZoom,
-      mapTypeId: mapType,
-      mapTypeControl: false,
-      streetViewControl: false,
-      fullscreenControl: true,
-      zoomControl: true,
-    };
-
-    const map = new window.google.maps.Map(mapRef.current, mapOptions);
-    googleMapRef.current = map;
-
-    // Initialize Places & Autocomplete Services
-    if (window.google.maps.places) {
-      autocompleteServiceRef.current = new window.google.maps.places.AutocompleteService();
-      placesServiceRef.current = new window.google.maps.places.PlacesService(map);
-    }
-
-    // Place Initial Marker if coordinates exist
-    if (hasInitialCoords) {
-      updateLocationFromCoordinates(defaultLat, defaultLng, map);
-    }
-
-    // Map Click & POI Click Handler
-    map.addListener('click', (event: any) => {
-      if (event.placeId) {
-        event.stop?.();
-        if (placesServiceRef.current) {
-          placesServiceRef.current.getDetails(
-            {
-              placeId: event.placeId,
-              fields: ['name', 'geometry', 'formatted_address', 'plus_code'],
-            },
-            (place: any, status: string) => {
-              if (status === window.google.maps.places.PlacesServiceStatus.OK && place) {
-                applyPlaceLocation(place);
-              } else if (event.latLng) {
-                const clickedLat = event.latLng.lat();
-                const clickedLng = event.latLng.lng();
-                updateLocationFromCoordinates(clickedLat, clickedLng, map);
-                reverseGeocode(clickedLat, clickedLng);
-              }
-            }
-          );
-          return;
-        }
-      }
-
-      if (event.latLng) {
-        const clickedLat = event.latLng.lat();
-        const clickedLng = event.latLng.lng();
-        updateLocationFromCoordinates(clickedLat, clickedLng, map);
-        reverseGeocode(clickedLat, clickedLng);
-      }
-    });
-
-    // Geocode Region/District if no initial coords
-    if (!hasInitialCoords && (regionName || districtName)) {
-      const regionSearch = [districtName, regionName, 'Ghana'].filter(Boolean).join(', ');
-      const geocoder = new window.google.maps.Geocoder();
-      geocoder.geocode({ address: regionSearch, componentRestrictions: { country: 'gh' } }, (results: any, status: string) => {
-        if (status === 'OK' && results[0] && googleMapRef.current) {
-          googleMapRef.current.setCenter(results[0].geometry.location);
-          googleMapRef.current.setZoom(12);
-        }
-      });
-    }
-  }, [open, mapLoaded]);
-
-  // Fetch Autocomplete Suggestions on Input Change (biased to Ghana)
+  // Fetch Autocomplete Suggestions on Input Change
   useEffect(() => {
     if (!searchQuery || searchQuery.trim().length < 2 || !autocompleteServiceRef.current) {
       setSuggestions([]);
@@ -375,11 +257,12 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
     setSuggestions([]);
     setSearchMessage(null);
 
-    if (!placesServiceRef.current && googleMapRef.current) {
-      placesServiceRef.current = new window.google.maps.places.PlacesService(googleMapRef.current);
-    }
+    const requestId = ++searchRequestIdRef.current;
 
-    if (placesServiceRef.current) {
+    if (window.google?.maps?.places) {
+      const dummyDiv = document.createElement('div');
+      placesServiceRef.current = new window.google.maps.places.PlacesService(dummyDiv);
+
       placesServiceRef.current.getDetails(
         {
           placeId: suggestion.placeId,
@@ -387,7 +270,7 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
         },
         (place: any, status: string) => {
           if (status === window.google.maps.places.PlacesServiceStatus.OK && place) {
-            applyPlaceLocation(place);
+            applyPlaceLocation(place, requestId);
           } else {
             setSearchMessage('Google place search is temporarily unavailable.');
           }
@@ -404,6 +287,8 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
     setSearchMessage(null);
     setSearching(true);
 
+    const requestId = ++searchRequestIdRef.current;
+
     const geocoder = new window.google.maps.Geocoder();
     geocoder.geocode(
       {
@@ -412,14 +297,19 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
       },
       (results: any[], status: string) => {
         setSearching(false);
+        if (requestId !== searchRequestIdRef.current) return;
+
         if (status === 'OK' && results && results.length > 0) {
           const topResult = results[0];
-          applyPlaceLocation({
-            name: searchQuery,
-            formatted_address: topResult.formatted_address,
-            geometry: topResult.geometry,
-            plus_code: topResult.plus_code,
-          });
+          applyPlaceLocation(
+            {
+              name: searchQuery,
+              formatted_address: topResult.formatted_address,
+              geometry: topResult.geometry,
+              plus_code: topResult.plus_code,
+            },
+            requestId
+          );
         } else {
           setSearchMessage('No matching place found. Try a nearby town, road or landmark.');
         }
@@ -445,21 +335,12 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
     }
 
     setValidationError(null);
-    updateLocationFromCoordinates(parsedLat, parsedLng);
-
-    if (googleMapRef.current) {
-      googleMapRef.current.setCenter({ lat: parsedLat, lng: parsedLng });
-      googleMapRef.current.setZoom(15);
-    }
+    setSelectedLocation({ lat: parsedLat, lng: parsedLng });
+    setMapRevision((prev) => prev + 1);
   };
 
   const handleToggleMapType = (newType: 'roadmap' | 'hybrid') => {
     setMapType(newType);
-    if (googleMapRef.current && window.google?.maps) {
-      googleMapRef.current.setMapTypeId(
-        newType === 'hybrid' ? window.google.maps.MapTypeId.HYBRID : window.google.maps.MapTypeId.ROADMAP
-      );
-    }
   };
 
   const handleConfirm = () => {
@@ -478,10 +359,12 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
       return;
     }
 
-    console.log('Confirm location:', lat, lng);
     onConfirm(lat, lng, localitySuggestion);
     onClose();
   };
+
+  const currentLat = selectedLocation?.lat ?? initialLat ?? 7.9465;
+  const currentLng = selectedLocation?.lng ?? initialLng ?? -1.0232;
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
@@ -611,12 +494,6 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
         {/* Selected Place Summary Banner */}
         {selectedPlaceInfo && (
           <Box
-            onClick={() => {
-              if (selectedLocation && googleMapRef.current) {
-                googleMapRef.current.setCenter({ lat: selectedLocation.lat, lng: selectedLocation.lng });
-                googleMapRef.current.setZoom(17);
-              }
-            }}
             sx={{
               mb: 2,
               p: 1.5,
@@ -624,8 +501,6 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
               borderRadius: 1.5,
               border: '1px solid',
               borderColor: 'primary.200',
-              cursor: 'pointer',
-              '&:hover': { bgcolor: 'primary.100' },
             }}
           >
             <Typography variant="subtitle2" fontWeight="bold" color="primary.main">
@@ -647,24 +522,32 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
           </Box>
         )}
 
-        {/* Google Map Container */}
-        <Box
-          ref={mapRef}
-          sx={{
-            width: '100%',
-            height: { xs: 350, sm: 450, md: 500 },
-            borderRadius: 2,
-            border: '1px solid',
-            borderColor: 'divider',
-            bgcolor: 'action.hover',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            overflow: 'hidden',
-          }}
-        >
-          {!mapLoaded && !loadError && (
-            <Typography color="text.secondary">Loading Google Maps...</Typography>
+        {/* Isolated Remountable Map Canvas */}
+        <Box sx={{ width: '100%', minHeight: { xs: 350, sm: 450, md: 500 }, position: 'relative' }}>
+          {mapLoaded ? (
+            <StationLocationMap
+              key={`station-map-${mapRevision}`}
+              latitude={currentLat}
+              longitude={currentLng}
+              mapType={mapType}
+              onLocationSelect={handleLocationSelectFromMap}
+            />
+          ) : (
+            <Box
+              sx={{
+                width: '100%',
+                height: 450,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                bgcolor: 'action.hover',
+                borderRadius: 2,
+              }}
+            >
+              <Typography color="text.secondary">
+                {loadError || 'Loading Google Maps...'}
+              </Typography>
+            </Box>
           )}
         </Box>
 

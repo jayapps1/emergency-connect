@@ -71,7 +71,7 @@ class AdminAccessRequestServiceTest {
 
         AdminUserResponse userResp = new AdminUserResponse(
             UUID.randomUUID(), "kwame@gnfs.gov.gh", "Kwame", "Nkrumah", "+233240001122",
-            agencyId, "Ghana National Fire Service", null, null, null, true, false, true, null, Set.of("AGENCY_ADMIN")
+            agencyId, "Ghana National Fire Service", null, null, null, true, false, true, false, null, Set.of("AGENCY_ADMIN")
         );
         given(userService.createUser(any())).willReturn(new CreateUserResponse(userResp, "Gec!TempPassword123"));
 

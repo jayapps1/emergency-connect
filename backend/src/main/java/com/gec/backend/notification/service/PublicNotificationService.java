@@ -5,10 +5,13 @@ import com.gec.backend.notification.entity.PublicNotificationEntity;
 import com.gec.backend.notification.entity.PushDeviceRegistrationEntity;
 import com.gec.backend.notification.repository.PublicNotificationRepository;
 import com.gec.backend.notification.repository.PushDeviceRegistrationRepository;
+import com.gec.backend.publicuser.entity.PublicUserEntity;
+import com.gec.backend.publicuser.repository.PublicUserRepository;
 import com.gec.backend.publicuser.security.PublicUserPrincipal;
 import com.gec.backend.report.entity.IncidentReportEntity;
 import com.gec.backend.report.entity.ReportMode;
 import com.gec.backend.report.entity.ReportStatus;
+import com.gec.backend.safety.entity.SafetyInformationEntity;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -16,23 +19,31 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * Public notifications signal newly published safety information while
+ * the SafetyInformation record remains authoritative.
+ */
 @Service
 public class PublicNotificationService {
 
     private final PublicNotificationRepository notificationRepository;
     private final PushDeviceRegistrationRepository pushDeviceRepository;
+    private final PublicUserRepository publicUserRepository;
     private final FcmPushService fcmPushService;
 
     public PublicNotificationService(
         PublicNotificationRepository notificationRepository,
         PushDeviceRegistrationRepository pushDeviceRepository,
+        PublicUserRepository publicUserRepository,
         FcmPushService fcmPushService
     ) {
         this.notificationRepository = notificationRepository;
         this.pushDeviceRepository = pushDeviceRepository;
+        this.publicUserRepository = publicUserRepository;
         this.fcmPushService = fcmPushService;
     }
 
@@ -85,6 +96,39 @@ public class PublicNotificationService {
         List<PushDeviceRegistrationEntity> devices = pushDeviceRepository.findByPublicUserIdAndActiveTrue(publicUserId);
         for (PushDeviceRegistrationEntity device : devices) {
             fcmPushService.sendPushNotification(device.getDeviceToken(), title, message, report.getId().toString());
+        }
+    }
+
+    @Transactional
+    public void notifySafetyInformationPublished(SafetyInformationEntity safetyPost, String issuingAgencyName) {
+        String eventType = "SAFETY_INFORMATION";
+        String title = issuingAgencyName != null && !issuingAgencyName.isBlank() ? issuingAgencyName : "Ghana Emergency Connect";
+        String message = safetyPost.getTitle();
+
+        // 1. Create in-app notification records for all registered public user accounts
+        List<PublicUserEntity> publicUsers = publicUserRepository.findAll();
+        List<PublicNotificationEntity> notifications = new ArrayList<>();
+        for (PublicUserEntity user : publicUsers) {
+            notifications.add(new PublicNotificationEntity(
+                UUID.randomUUID(),
+                user.getId(),
+                null,
+                eventType,
+                title,
+                message
+            ));
+        }
+        if (!notifications.isEmpty()) {
+            notificationRepository.saveAll(notifications);
+        }
+
+        // 2. Dispatch FCM push notification signal to all active registered push devices
+        List<PushDeviceRegistrationEntity> activeDevices = pushDeviceRepository.findAll().stream()
+            .filter(PushDeviceRegistrationEntity::isActive)
+            .toList();
+
+        for (PushDeviceRegistrationEntity device : activeDevices) {
+            fcmPushService.sendPushNotification(device.getDeviceToken(), title, message, safetyPost.getId().toString());
         }
     }
 

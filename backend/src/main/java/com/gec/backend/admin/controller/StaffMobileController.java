@@ -3,6 +3,8 @@ package com.gec.backend.admin.controller;
 import com.gec.backend.admin.dto.AdminReportDetailsResponse;
 import com.gec.backend.admin.dto.AdminReportSummaryResponse;
 import com.gec.backend.admin.dto.AdminUserResponse;
+import com.gec.backend.admin.dto.ResponderAssignmentResponseDto;
+import com.gec.backend.admin.service.ResponderAssignmentService;
 import com.gec.backend.admin.service.StaffMobileService;
 import com.gec.backend.messaging.entity.StaffNotificationEntity;
 import org.springframework.data.domain.Page;
@@ -11,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -19,14 +22,24 @@ import java.util.UUID;
 public class StaffMobileController {
 
     private final StaffMobileService staffMobileService;
+    private final ResponderAssignmentService responderAssignmentService;
 
-    public StaffMobileController(StaffMobileService staffMobileService) {
+    public StaffMobileController(
+        StaffMobileService staffMobileService,
+        ResponderAssignmentService responderAssignmentService
+    ) {
         this.staffMobileService = staffMobileService;
+        this.responderAssignmentService = responderAssignmentService;
     }
 
     @GetMapping("/me")
     public ResponseEntity<AdminUserResponse> getStaffProfile() {
         return ResponseEntity.ok(staffMobileService.getStaffProfile());
+    }
+
+    @GetMapping("/me/assignments")
+    public ResponseEntity<List<ResponderAssignmentResponseDto>> getMyActiveAssignments() {
+        return ResponseEntity.ok(responderAssignmentService.getMyActiveAssignments());
     }
 
     @GetMapping("/incidents")

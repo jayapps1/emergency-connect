@@ -2,6 +2,7 @@ package com.gec.backend.station.controller;
 
 import com.gec.backend.station.dto.StationContactResponse;
 import com.gec.backend.station.dto.StationDetailsResponse;
+import com.gec.backend.station.dto.StationResponse;
 import com.gec.backend.station.service.StationService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -28,6 +29,19 @@ public class PublicStationController {
 
     public PublicStationController(StationService stationService) {
         this.stationService = stationService;
+    }
+
+    /**
+     * Returns every station currently eligible for public discovery across all
+     * emergency agencies. Station publication depends only on active and verified
+     * state; contact and appliance availability affect actions/presentation but
+     * never remove an otherwise published station from the directory.
+     *
+     * @return list of published station DTOs across all agencies
+     */
+    @GetMapping
+    public ResponseEntity<List<StationResponse>> getAllPublicStations() {
+        return ResponseEntity.ok(stationService.getAllPublicActiveVerifiedStations());
     }
 
     /**

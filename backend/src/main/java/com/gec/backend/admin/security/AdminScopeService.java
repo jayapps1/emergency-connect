@@ -50,6 +50,17 @@ public class AdminScopeService {
     }
 
     /**
+     * Validates that the current user holds global SYSTEM_ADMIN authority.
+     *
+     * @throws AccessDeniedException if user is not a SYSTEM_ADMIN
+     */
+    public void checkSystemAdminAccess() {
+        if (!isSystemAdmin()) {
+            throw new AccessDeniedException("Access is restricted to System Administrators.");
+        }
+    }
+
+    /**
      * Validates that the current administrator is authorized to access or modify resources
      * owned by the target agency.
      *

@@ -20,6 +20,10 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * System Admin manages internal identities but has read-only visibility
+ * into agency appliance operations.
+ */
 @Service
 public class AdminUserService {
 
@@ -123,6 +127,46 @@ public class AdminUserService {
     }
 
     @Transactional
+    public AdminUserResponse updateUser(UUID id, CreateAdminUserRequest request) {
+        AdminUserEntity user = userRepository.findById(id)
+            .orElseThrow(() -> new ResourceNotFoundException("User not found: " + id));
+
+        if (user.getAgencyId() != null && !scopeService.isSystemAdmin()) {
+            scopeService.validateAgencyScope(user.getAgencyId());
+        }
+
+        user.setFirstName(request.firstName());
+        user.setLastName(request.lastName());
+        user.setPhoneNumber(request.phoneNumber());
+
+        if (scopeService.isSystemAdmin() && request.agencyId() != null) {
+            user.setAgencyId(request.agencyId());
+        }
+        user.setRegion(request.region());
+        user.setStationId(request.stationId());
+
+        if (request.roleCodes() != null && !request.roleCodes().isEmpty()) {
+            Set<RoleEntity> roles = new HashSet<>();
+            for (String code : request.roleCodes()) {
+                if (code.equals("SYSTEM_ADMIN") && !scopeService.isSystemAdmin()) {
+                    throw new IllegalArgumentException("Agency Admin cannot assign SYSTEM_ADMIN role.");
+                }
+                RoleEntity role = roleRepository.findByCode(code)
+                    .orElseThrow(() -> new ResourceNotFoundException("Role not found: " + code));
+                roles.add(role);
+            }
+            user.setRoles(roles);
+        }
+
+        user = userRepository.save(user);
+
+        UUID actorId = scopeService.getCurrentPrincipal().getId();
+        auditService.logAction(actorId, "ADMIN_USER_UPDATED", "ADMIN_USER", id, user.getAgencyId(), "Updated admin user " + user.getEmail(), null, null);
+
+        return mapToResponse(user);
+    }
+
+    @Transactional
     public AdminUserResponse deactivateUser(UUID id) {
         AdminUserEntity user = userRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException("User not found: " + id));
@@ -132,30 +176,110 @@ public class AdminUserService {
         }
 
         user.setActive(false);
-        user.setUpdatedAt(LocalDateTime.now());
         userRepository.save(user);
 
         UUID actorId = scopeService.getCurrentPrincipal().getId();
-        auditService.logAction(actorId, "ADMIN_USER_DEACTIVATED", "ADMIN_USER", id, user.getAgencyId(), "Deactivated user " + user.getEmail(), null, null);
+        auditService.logAction(actorId, "ADMIN_USER_DEACTIVATED", "ADMIN_USER", id, user.getAgencyId(), "Deactivated admin user " + user.getEmail(), null, null);
 
         return mapToResponse(user);
     }
 
+    @Transactional
+    public AdminUserResponse reactivateUser(UUID id) {
+        AdminUserEntity user = userRepository.findById(id)
+            .orElseThrow(() -> new ResourceNotFoundException("User not found: " + id));
+
+        if (user.getAgencyId() != null) {
+            scopeService.validateAgencyScope(user.getAgencyId());
+        }
+
+        user.setActive(true);
+        user.setLocked(false);
+        user.setFailedLoginAttempts(0);
+        userRepository.save(user);
+
+        UUID actorId = scopeService.getCurrentPrincipal().getId();
+        auditService.logAction(actorId, "ADMIN_USER_REACTIVATED", "ADMIN_USER", id, user.getAgencyId(), "Reactivated admin user " + user.getEmail(), null, null);
+
+        return mapToResponse(user);
+    }
+
+    @Transactional
+    public Map<String, String> resetUserPassword(UUID id) {
+        AdminUserEntity user = userRepository.findById(id)
+            .orElseThrow(() -> new ResourceNotFoundException("User not found: " + id));
+
+        if (user.getAgencyId() != null) {
+            scopeService.validateAgencyScope(user.getAgencyId());
+        }
+
+        String tempPassword = generateTempPassword();
+        user.setPasswordHash(passwordEncoder.encode(tempPassword));
+        user.setMustChangePassword(true);
+        user.setTemporaryPasswordIssuedAt(LocalDateTime.now());
+        user.setFailedLoginAttempts(0);
+        user.setLocked(false);
+        userRepository.save(user);
+
+        UUID actorId = scopeService.getCurrentPrincipal().getId();
+        auditService.logAction(actorId, "ADMIN_USER_PASSWORD_RESET", "ADMIN_USER", id, user.getAgencyId(), "Reset password for user " + user.getEmail(), null, null);
+
+        Map<String, String> response = new HashMap<>();
+        response.put("email", user.getEmail());
+        response.put("temporaryPassword", tempPassword);
+        return response;
+    }
+
     private AdminUserResponse mapToResponse(AdminUserEntity user) {
-        Set<String> roleCodes = user.getRoles().stream().map(RoleEntity::getCode).collect(Collectors.toSet());
-        String agencyName = user.getAgencyId() != null ? agencyRepository.findById(user.getAgencyId()).map(AgencyEntity::getName).orElse(null) : null;
-        String stationName = user.getStationId() != null ? stationRepository.findById(user.getStationId()).map(StationEntity::getName).orElse(null) : null;
+        Set<String> roleCodes = user.getRoles() != null
+            ? user.getRoles().stream().map(RoleEntity::getCode).collect(Collectors.toSet())
+            : Collections.emptySet();
+
+        String agencyName = user.getAgencyId() != null
+            ? agencyRepository.findById(user.getAgencyId()).map(AgencyEntity::getName).orElse(null)
+            : null;
+
+        String stationName = user.getStationId() != null
+            ? stationRepository.findById(user.getStationId()).map(StationEntity::getName).orElse(null)
+            : null;
 
         return new AdminUserResponse(
-            user.getId(), user.getEmail(), user.getFirstName(), user.getLastName(), user.getPhoneNumber(),
-            user.getAgencyId(), agencyName, user.getRegion(), user.getStationId(), stationName,
-            user.isActive(), user.isLocked(), user.isMustChangePassword(), user.getLastLoginAt(), roleCodes
+            user.getId(),
+            user.getEmail(),
+            user.getFirstName(),
+            user.getLastName(),
+            user.getPhoneNumber(),
+            user.getAgencyId(),
+            agencyName,
+            user.getRegion(),
+            user.getStationId(),
+            stationName,
+            user.isActive(),
+            user.isLocked(),
+            user.isMustChangePassword(),
+            user.isTotpEnabled(),
+            user.getLastLoginAt(),
+            roleCodes
         );
     }
 
     private String generateTempPassword() {
-        byte[] bytes = new byte[8];
-        secureRandom.nextBytes(bytes);
-        return "Gec!" + Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+        String upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+        String lower = "abcdefghijkmnpqrstuvwxyz";
+        String digits = "23456789";
+        String special = "@#$!";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(upper.charAt(secureRandom.nextInt(upper.length())));
+        sb.append(lower.charAt(secureRandom.nextInt(lower.length())));
+        sb.append(digits.charAt(secureRandom.nextInt(digits.length())));
+        sb.append(special.charAt(secureRandom.nextInt(special.length())));
+
+        String all = upper + lower + digits + special;
+        for (int i = 4; i < 10; i++) {
+            sb.append(all.charAt(secureRandom.nextInt(all.length())));
+        }
+
+        return sb.toString();
     }
 }

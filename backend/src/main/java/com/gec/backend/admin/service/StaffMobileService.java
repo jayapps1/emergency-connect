@@ -74,7 +74,7 @@ public class StaffMobileService {
         return new AdminUserResponse(
             user.getId(), user.getEmail(), user.getFirstName(), user.getLastName(), user.getPhoneNumber(),
             user.getAgencyId(), agencyName, user.getRegion(), user.getStationId(), stationName,
-            user.isActive(), user.isLocked(), user.isMustChangePassword(), user.getLastLoginAt(), roleCodes
+            user.isActive(), user.isLocked(), user.isMustChangePassword(), user.isTotpEnabled(), user.getLastLoginAt(), roleCodes
         );
     }
 

@@ -32,6 +32,15 @@ public class ReportAssignmentEntity {
     @Column(name = "assigned_at")
     private LocalDateTime assignedAt = LocalDateTime.now();
 
+    @Column(name = "acknowledgement_sla_state")
+    private String acknowledgementSlaState = "ON_TIME";
+
+    @Column(name = "response_start_sla_state")
+    private String responseStartSlaState = "ON_TIME";
+
+    @Column(name = "last_escalated_at")
+    private LocalDateTime lastEscalatedAt;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 
@@ -61,6 +70,12 @@ public class ReportAssignmentEntity {
     public void setStatus(ReportStatus status) { this.status = status; }
     public LocalDateTime getAssignedAt() { return assignedAt; }
     public void setAssignedAt(LocalDateTime assignedAt) { this.assignedAt = assignedAt; }
+    public String getAcknowledgementSlaState() { return acknowledgementSlaState; }
+    public void setAcknowledgementSlaState(String acknowledgementSlaState) { this.acknowledgementSlaState = acknowledgementSlaState; }
+    public String getResponseStartSlaState() { return responseStartSlaState; }
+    public void setResponseStartSlaState(String responseStartSlaState) { this.responseStartSlaState = responseStartSlaState; }
+    public LocalDateTime getLastEscalatedAt() { return lastEscalatedAt; }
+    public void setLastEscalatedAt(LocalDateTime lastEscalatedAt) { this.lastEscalatedAt = lastEscalatedAt; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }

@@ -45,6 +45,10 @@ public class AdminAuthService {
         this.auditService = auditService;
     }
 
+    /**
+     * Password and authenticator-code login are independent authentication
+     * methods that produce the same staff session.
+     */
     @Transactional
     public LoginResponse login(LoginRequest request, String ipAddress, String userAgent) {
         AdminUserEntity user = userRepository.findByEmailIgnoreCase(request.email().trim().toLowerCase(Locale.US))
@@ -82,22 +86,56 @@ public class AdminAuthService {
         user.setLastLoginAt(LocalDateTime.now());
         userRepository.save(user);
 
-        Set<String> roleCodes = user.getRoles().stream().map(RoleEntity::getCode).collect(Collectors.toSet());
-        Set<String> permCodes = new HashSet<>();
-        user.getRoles().forEach(r -> r.getPermissions().forEach(p -> permCodes.add(p.getCode())));
+        if (!user.isTotpEnabled()) {
+            String mfaChallenge = mfaService.createMfaChallenge(user.getId());
+            Set<String> roleCodes = getRoleCodes(user);
+            Set<String> permCodes = getPermCodes(user);
+            AdminUserResponse userResp = mapToUserResponse(user, roleCodes);
+            AdminUserPrincipal principal = new AdminUserPrincipal(user);
+            String accessToken = tokenProvider.generateToken(principal);
+            return new LoginResponse(accessToken, tokenProvider.getExpirationInSeconds(), userResp, roleCodes, permCodes, "MFA_SETUP_REQUIRED", mfaChallenge);
+        }
 
-        AdminUserResponse userResponse = new AdminUserResponse(
-            user.getId(), user.getEmail(), user.getFirstName(), user.getLastName(), user.getPhoneNumber(),
-            user.getAgencyId(), null, user.getRegion(), user.getStationId(), null, user.isActive(), user.isLocked(),
-            user.isMustChangePassword(), user.getLastLoginAt(), roleCodes
-        );
+        return finalizeAuthenticatedLogin(user, ipAddress, userAgent);
+    }
 
-        String mfaChallenge = mfaService.createMfaChallenge(user.getId());
-        String authState = user.isTotpEnabled() ? "MFA_REQUIRED" : "MFA_SETUP_REQUIRED";
+    /**
+     * Authenticator-only login method using 6-digit TOTP code.
+     */
+    @Transactional
+    public LoginResponse loginWithTotpDirect(String email, String code, String ipAddress, String userAgent) {
+        if (email == null || email.isBlank() || code == null || code.isBlank()) {
+            throw new BadCredentialsException("Email and authenticator code are required.");
+        }
 
-        auditService.logAction(user.getId(), "PASSWORD_VERIFIED", "ADMIN_USER", user.getId(), user.getAgencyId(), "Password verified, MFA challenge issued (" + authState + ")", ipAddress, userAgent);
+        AdminUserEntity user = userRepository.findByEmailIgnoreCase(email.trim().toLowerCase(Locale.US))
+            .orElseThrow(() -> new BadCredentialsException("Incorrect or expired authenticator code. Please try again."));
 
-        return new LoginResponse(null, 0, userResponse, roleCodes, permCodes, authState, mfaChallenge);
+        if (!user.isActive() || user.isLocked()) {
+            throw new BadCredentialsException("Incorrect or expired authenticator code. Please try again.");
+        }
+
+        if (!user.isTotpEnabled() || user.getTotpSecretEncrypted() == null) {
+            throw new BadCredentialsException("Authenticator 2-Step Verification is not configured for this account. Please sign in with Password.");
+        }
+
+        boolean valid = mfaService.verifyTotpCodeDirect(user, code.trim());
+        if (!valid) {
+            int attempts = user.getFailedLoginAttempts() + 1;
+            user.setFailedLoginAttempts(attempts);
+            if (attempts >= 5) {
+                user.setLocked(true);
+            }
+            userRepository.save(user);
+            auditService.logAction(user.getId(), "TOTP_LOGIN_FAILED", "ADMIN_USER", user.getId(), user.getAgencyId(), "Failed TOTP direct login attempt " + attempts, ipAddress, userAgent);
+            throw new BadCredentialsException("Incorrect or expired authenticator code. Please try again.");
+        }
+
+        user.setFailedLoginAttempts(0);
+        user.setLastLoginAt(LocalDateTime.now());
+        userRepository.save(user);
+
+        return finalizeAuthenticatedLogin(user, ipAddress, userAgent);
     }
 
     @Transactional
@@ -105,17 +143,11 @@ public class AdminAuthService {
         AdminUserPrincipal principal = new AdminUserPrincipal(user);
         String accessToken = tokenProvider.generateToken(principal);
 
-        auditService.logAction(user.getId(), "LOGIN_SUCCESS", "ADMIN_USER", user.getId(), user.getAgencyId(), "Successful admin MFA login", ipAddress, userAgent);
+        auditService.logAction(user.getId(), "LOGIN_SUCCESS", "ADMIN_USER", user.getId(), user.getAgencyId(), "Successful admin login", ipAddress, userAgent);
 
-        Set<String> roleCodes = user.getRoles().stream().map(RoleEntity::getCode).collect(Collectors.toSet());
-        Set<String> permCodes = new HashSet<>();
-        user.getRoles().forEach(r -> r.getPermissions().forEach(p -> permCodes.add(p.getCode())));
-
-        AdminUserResponse userResponse = new AdminUserResponse(
-            user.getId(), user.getEmail(), user.getFirstName(), user.getLastName(), user.getPhoneNumber(),
-            user.getAgencyId(), null, user.getRegion(), user.getStationId(), null, user.isActive(), user.isLocked(),
-            user.isMustChangePassword(), user.getLastLoginAt(), roleCodes
-        );
+        Set<String> roleCodes = getRoleCodes(user);
+        Set<String> permCodes = getPermCodes(user);
+        AdminUserResponse userResponse = mapToUserResponse(user, roleCodes);
 
         return new LoginResponse(accessToken, tokenProvider.getExpirationInSeconds(), userResponse, roleCodes, permCodes, "AUTHENTICATED", null);
     }
@@ -158,15 +190,9 @@ public class AdminAuthService {
         AdminUserPrincipal principal = new AdminUserPrincipal(user);
         String newAccessToken = tokenProvider.generateToken(principal);
 
-        Set<String> roleCodes = user.getRoles().stream().map(RoleEntity::getCode).collect(Collectors.toSet());
-        Set<String> permCodes = new HashSet<>();
-        user.getRoles().forEach(r -> r.getPermissions().forEach(p -> permCodes.add(p.getCode())));
-
-        AdminUserResponse userResponse = new AdminUserResponse(
-            user.getId(), user.getEmail(), user.getFirstName(), user.getLastName(), user.getPhoneNumber(),
-            user.getAgencyId(), null, user.getRegion(), user.getStationId(), null, user.isActive(), user.isLocked(),
-            user.isMustChangePassword(), user.getLastLoginAt(), roleCodes
-        );
+        Set<String> roleCodes = getRoleCodes(user);
+        Set<String> permCodes = getPermCodes(user);
+        AdminUserResponse userResponse = mapToUserResponse(user, roleCodes);
 
         return new LoginResponse(newAccessToken, tokenProvider.getExpirationInSeconds(), userResponse, roleCodes, permCodes, "AUTHENTICATED", null);
     }
@@ -202,6 +228,30 @@ public class AdminAuthService {
         refreshTokenRepository.deleteByUserId(userId);
 
         auditService.logAction(userId, "PASSWORD_CHANGED", "ADMIN_USER", userId, user.getAgencyId(), "Admin password changed successfully", null, null);
+    }
+
+    private Set<String> getRoleCodes(AdminUserEntity user) {
+        if (user.getRoles() == null) return Collections.emptySet();
+        return user.getRoles().stream().map(RoleEntity::getCode).collect(Collectors.toSet());
+    }
+
+    private Set<String> getPermCodes(AdminUserEntity user) {
+        if (user.getRoles() == null) return Collections.emptySet();
+        Set<String> permCodes = new HashSet<>();
+        user.getRoles().forEach(r -> {
+            if (r.getPermissions() != null) {
+                r.getPermissions().forEach(p -> permCodes.add(p.getCode()));
+            }
+        });
+        return permCodes;
+    }
+
+    private AdminUserResponse mapToUserResponse(AdminUserEntity user, Set<String> roleCodes) {
+        return new AdminUserResponse(
+            user.getId(), user.getEmail(), user.getFirstName(), user.getLastName(), user.getPhoneNumber(),
+            user.getAgencyId(), null, user.getRegion(), user.getStationId(), null, user.isActive(), user.isLocked(),
+            user.isMustChangePassword(), user.isTotpEnabled(), user.getLastLoginAt(), roleCodes
+        );
     }
 
     private String generateRawToken() {

@@ -11,6 +11,7 @@ import com.gec.backend.admin.security.TotpService;
 import com.gec.backend.common.exception.ResourceConflictException;
 import com.gec.backend.common.exception.ResourceNotFoundException;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,6 +30,7 @@ public class MfaService {
     private final MfaRecoveryCodeRepository recoveryCodeRepository;
     private final TotpService totpService;
     private final TotpSecretEncryptionService encryptionService;
+    private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -38,6 +40,7 @@ public class MfaService {
         MfaRecoveryCodeRepository recoveryCodeRepository,
         TotpService totpService,
         TotpSecretEncryptionService encryptionService,
+        PasswordEncoder passwordEncoder,
         AuditService auditService
     ) {
         this.userRepository = userRepository;
@@ -45,6 +48,7 @@ public class MfaService {
         this.recoveryCodeRepository = recoveryCodeRepository;
         this.totpService = totpService;
         this.encryptionService = encryptionService;
+        this.passwordEncoder = passwordEncoder;
         this.auditService = auditService;
     }
 
@@ -67,17 +71,6 @@ public class MfaService {
         return challengeToken;
     }
 
-    /**
-     * Authorizes TOTP setup initialization using a short-lived pre-authentication MFA challenge token.
-     *
-     * <p>Security Rationale:
-     * First-time administrators have not yet configured two-step verification and therefore do not possess
-     * a fully authenticated access JWT token. Setup initialization is authorized by an {@code mfaChallenge} token
-     * issued immediately after password verification.
-     *
-     * @param challengeToken the short-lived pre-authentication challenge token
-     * @return map containing plaintext Base32 secret and standard otpauth provisioning URI
-     */
     @Transactional
     public Map<String, String> startTotpSetupWithChallenge(String challengeToken) {
         MfaChallengeEntity challenge = getValidChallenge(challengeToken);
@@ -106,13 +99,6 @@ public class MfaService {
         return response;
     }
 
-    /**
-     * Confirms initial TOTP setup using a short-lived pre-authentication MFA challenge token and initial 6-digit code.
-     *
-     * @param challengeToken the short-lived pre-authentication challenge token
-     * @param code           the 6-digit confirmation code from the user's authenticator app
-     * @return list of 10 single-use plaintext recovery codes
-     */
     @Transactional
     public List<String> confirmTotpSetupWithChallenge(String challengeToken, String code) {
         MfaChallengeEntity challenge = getValidChallenge(challengeToken);
@@ -144,6 +130,30 @@ public class MfaService {
         auditService.logAction(user.getId(), "MFA_ENABLED", "ADMIN_USER", user.getId(), user.getAgencyId(), "TOTP MFA enabled and verified successfully", null, null);
 
         return recoveryCodes;
+    }
+
+    @Transactional
+    public void disableTotp(AdminUserEntity user, String password) {
+        if (password == null || password.isBlank() || !passwordEncoder.matches(password, user.getPasswordHash())) {
+            throw new BadCredentialsException("Current password is incorrect. Unable to disable Authenticator.");
+        }
+
+        user.setTotpEnabled(false);
+        user.setTotpSecretEncrypted(null);
+        user.setTotpConfirmedAt(null);
+        userRepository.save(user);
+
+        recoveryCodeRepository.deleteByUserId(user.getId());
+
+        auditService.logAction(user.getId(), "MFA_DISABLED", "ADMIN_USER", user.getId(), user.getAgencyId(), "TOTP MFA disabled", null, null);
+    }
+
+    public boolean verifyTotpCodeDirect(AdminUserEntity user, String code) {
+        if (!user.isTotpEnabled() || user.getTotpSecretEncrypted() == null) {
+            return false;
+        }
+        String decryptedSecret = encryptionService.decrypt(user.getTotpSecretEncrypted());
+        return totpService.verifyCode(decryptedSecret, code);
     }
 
     @Transactional
@@ -221,7 +231,6 @@ public class MfaService {
 
     private void incrementChallengeAttempts(MfaChallengeEntity challenge) {
         int attempts = challenge.getAttemptsCount() + 1;
-        challenge.setAttemptsCount(attempts);
         if (attempts >= 5) {
             challengeRepository.delete(challenge);
         } else {
@@ -260,7 +269,7 @@ public class MfaService {
             byte[] hash = digest.digest(normalizedCode.getBytes(StandardCharsets.UTF_8));
             return Base64.getEncoder().encodeToString(hash);
         } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("SHA-256 algorithm unavailable", e);
+            throw new RuntimeException("SHA-256 unavailable", e);
         }
     }
 }

@@ -19,6 +19,7 @@ import VisibilityIcon from '@mui/icons-material/Visibility';
 import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '@/api/reportApi';
 import { useNavigate } from 'react-router-dom';
+import { CallAttemptsPanel } from './CallAttemptsPanel';
 
 export const ReportsPage: React.FC = () => {
   const [page] = useState(0);
@@ -145,6 +146,8 @@ export const ReportsPage: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      <CallAttemptsPanel />
     </Box>
   );
 };

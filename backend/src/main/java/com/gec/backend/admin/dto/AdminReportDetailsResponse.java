@@ -52,6 +52,8 @@ public record AdminReportDetailsResponse(
         String stationName,
         ReportStatus status,
         LocalDateTime assignedAt,
-        LocalDateTime updatedAt
+        LocalDateTime updatedAt,
+        String acknowledgementSlaState,
+        String responseStartSlaState
     ) {}
 }

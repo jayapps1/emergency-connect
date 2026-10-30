@@ -10,5 +10,7 @@ import java.util.UUID;
 public interface AgencyRepository extends JpaRepository<AgencyEntity, UUID> {
     List<AgencyEntity> findByActiveTrueAndVerifiedTrue();
     List<AgencyEntity> findByTypeAndActiveTrue(AgencyType type);
+    List<AgencyEntity> findByType(AgencyType type);
     Optional<AgencyEntity> findByIdAndActiveTrueAndVerifiedTrue(UUID id);
+    boolean existsByCode(String code);
 }

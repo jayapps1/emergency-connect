@@ -125,7 +125,9 @@ public class AdminReportWorkflowService {
                 stationName,
                 a.getStatus(),
                 a.getAssignedAt(),
-                a.getUpdatedAt()
+                a.getUpdatedAt(),
+                a.getAcknowledgementSlaState() != null ? a.getAcknowledgementSlaState() : "ON_TIME",
+                a.getResponseStartSlaState() != null ? a.getResponseStartSlaState() : "ON_TIME"
             );
         }).toList();
 
@@ -416,6 +418,12 @@ public class AdminReportWorkflowService {
         Set<AgencyType> targetAgencies = new HashSet<>();
         assignments.forEach(a -> targetAgencies.add(a.getAgencyType()));
 
+        String ackSla = assignments.stream().anyMatch(a -> "DELAYED".equals(a.getAcknowledgementSlaState())) ? "DELAYED"
+            : assignments.stream().anyMatch(a -> "ATTENTION".equals(a.getAcknowledgementSlaState())) ? "ATTENTION" : "ON_TIME";
+
+        String respSla = assignments.stream().anyMatch(a -> "DELAYED".equals(a.getResponseStartSlaState())) ? "DELAYED"
+            : assignments.stream().anyMatch(a -> "ATTENTION".equals(a.getResponseStartSlaState())) ? "ATTENTION" : "ON_TIME";
+
         return new AdminReportSummaryResponse(
             report.getId(),
             report.getPublicReference(),
@@ -425,7 +433,9 @@ public class AdminReportWorkflowService {
             report.getSeverity(),
             report.getStatus(),
             report.getCreatedAt(),
-            targetAgencies
+            targetAgencies,
+            ackSla,
+            respSla
         );
     }
 }

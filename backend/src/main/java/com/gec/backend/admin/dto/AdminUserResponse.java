@@ -18,6 +18,7 @@ public record AdminUserResponse(
     boolean active,
     boolean locked,
     boolean mustChangePassword,
+    boolean totpEnabled,
     LocalDateTime lastLoginAt,
     Set<String> roles
 ) {}

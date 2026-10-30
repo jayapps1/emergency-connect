@@ -50,6 +50,20 @@ public class AdminAuthController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/login/totp-direct")
+    public ResponseEntity<LoginResponse> loginWithTotpDirect(
+        @RequestBody Map<String, String> body,
+        HttpServletRequest httpRequest
+    ) {
+        String email = body.get("email");
+        String code = body.get("code");
+        String ipAddress = httpRequest.getRemoteAddr();
+        String userAgent = httpRequest.getHeader("User-Agent");
+
+        LoginResponse response = authService.loginWithTotpDirect(email, code, ipAddress, userAgent);
+        return ResponseEntity.ok(response);
+    }
+
     @PostMapping("/mfa/totp/setup")
     public ResponseEntity<Map<String, String>> startTotpSetup(
         @RequestBody(required = false) Map<String, String> body,
@@ -90,6 +104,19 @@ public class AdminAuthController {
             "message", "TOTP MFA enabled successfully.",
             "recoveryCodes", recoveryCodes
         ));
+    }
+
+    @PostMapping("/mfa/totp/disable")
+    public ResponseEntity<Map<String, String>> disableTotp(
+        @RequestBody Map<String, String> body,
+        @AuthenticationPrincipal AdminUserPrincipal principal
+    ) {
+        if (principal == null) return ResponseEntity.status(401).build();
+        String password = body != null ? body.get("password") : null;
+        AdminUserEntity user = userRepository.findById(principal.getId())
+            .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        mfaService.disableTotp(user, password);
+        return ResponseEntity.ok(Map.of("message", "Authenticator 2-Step Verification disabled successfully."));
     }
 
     @PostMapping("/mfa/totp/verify")
@@ -196,21 +223,24 @@ public class AdminAuthController {
     @GetMapping("/me")
     public ResponseEntity<AdminUserResponse> getCurrentUser(@AuthenticationPrincipal AdminUserPrincipal principal) {
         if (principal == null) return ResponseEntity.status(401).build();
+        AdminUserEntity user = userRepository.findById(principal.getId())
+            .orElseThrow(() -> new ResourceNotFoundException("User not found"));
         return ResponseEntity.ok(new AdminUserResponse(
-            principal.getId(),
-            principal.getUsername(),
-            principal.getFirstName(),
-            principal.getLastName(),
-            principal.getPhoneNumber(),
-            principal.getAgencyId(),
+            user.getId(),
+            user.getEmail(),
+            user.getFirstName(),
+            user.getLastName(),
+            user.getPhoneNumber(),
+            user.getAgencyId(),
             null,
-            principal.getRegion(),
-            principal.getStationId(),
+            user.getRegion(),
+            user.getStationId(),
             null,
-            principal.isEnabled(),
-            !principal.isAccountNonLocked(),
-            principal.isMustChangePassword(),
-            principal.getLastLoginAt(),
+            user.isActive(),
+            user.isLocked(),
+            user.isMustChangePassword(),
+            user.isTotpEnabled(),
+            user.getLastLoginAt(),
             Set.of()
         ));
     }

@@ -4,17 +4,22 @@ import { LoginPage } from '@/features/auth/LoginPage';
 import { ProfilePage } from '@/features/auth/ProfilePage';
 import { ForceChangePasswordPage } from '@/features/auth/ForceChangePasswordPage';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
+import { AppliancesPage } from '@/features/appliance/AppliancesPage';
+import { ReviewsPage } from '@/features/review/ReviewsPage';
 import { AgenciesPage } from '@/features/agency/AgenciesPage';
 import { StationsPage } from '@/features/station/StationsPage';
 import { ReportsPage } from '@/features/report/ReportsPage';
 import { ReportDetailsPage } from '@/features/report/ReportDetailsPage';
 import { UsersPage } from '@/features/user/UsersPage';
+import { RespondersPage } from '@/features/responder/RespondersPage';
+import { PublicUsersPage } from '@/features/user/PublicUsersPage';
 import { UserDetailPage } from '@/features/user/UserDetailPage';
 import { TemporaryCredentialsPage } from '@/features/credentials/TemporaryCredentialsPage';
 import { AdminRequestsPage } from '@/features/requests/AdminRequestsPage';
 import { UserRequestsPage } from '@/features/requests/UserRequestsPage';
 import { AuditLogsPage } from '@/features/audit/AuditLogsPage';
 import { IncidentCategoriesPage } from '@/features/categories/IncidentCategoriesPage';
+import { SafetyInformationPage } from '@/features/safety/SafetyInformationPage';
 import { RolesPage } from '@/features/roles/RolesPage';
 import { SettingsPage } from '@/features/settings/SettingsPage';
 import { AdminLayout } from '@/layouts/AdminLayout';
@@ -50,6 +55,22 @@ export const createRouter = (toggleTheme: () => void, currentMode: 'light' | 'da
               element: <ProfilePage />,
             },
             {
+              path: '/appliances',
+              element: (
+                <PermissionRoute permission="STATION_READ">
+                  <AppliancesPage />
+                </PermissionRoute>
+              ),
+            },
+            {
+              path: '/reviews',
+              element: (
+                <PermissionRoute permission="REPORT_READ">
+                  <ReviewsPage />
+                </PermissionRoute>
+              ),
+            },
+            {
               path: '/agencies',
               element: (
                 <PermissionRoute permission="AGENCY_READ">
@@ -74,6 +95,14 @@ export const createRouter = (toggleTheme: () => void, currentMode: 'light' | 'da
               ),
             },
             {
+              path: '/safety-information',
+              element: (
+                <PermissionRoute permission="REPORT_READ">
+                  <SafetyInformationPage />
+                </PermissionRoute>
+              ),
+            },
+            {
               path: '/reports',
               element: (
                 <PermissionRoute permission="REPORT_READ">
@@ -90,10 +119,26 @@ export const createRouter = (toggleTheme: () => void, currentMode: 'light' | 'da
               ),
             },
             {
+              path: '/responders',
+              element: (
+                <PermissionRoute permission="ADMIN_USER_READ">
+                  <RespondersPage />
+                </PermissionRoute>
+              ),
+            },
+            {
               path: '/users',
               element: (
                 <PermissionRoute permission="ADMIN_USER_READ">
                   <UsersPage />
+                </PermissionRoute>
+              ),
+            },
+            {
+              path: '/public-users',
+              element: (
+                <PermissionRoute permission="ADMIN_USER_READ">
+                  <PublicUsersPage />
                 </PermissionRoute>
               ),
             },

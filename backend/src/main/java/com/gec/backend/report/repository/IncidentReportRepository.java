@@ -15,4 +15,6 @@ public interface IncidentReportRepository extends JpaRepository<IncidentReportEn
     Page<IncidentReportEntity> findByIdIn(Collection<UUID> ids, Pageable pageable);
     List<IncidentReportEntity> findByReporterPublicUserIdOrderByCreatedAtDesc(UUID reporterPublicUserId);
     List<IncidentReportEntity> findByInstallationIdOrderByCreatedAtDesc(UUID installationId);
+    long countByReporterPublicUserId(UUID reporterPublicUserId);
+    long countByInstallationId(UUID installationId);
 }

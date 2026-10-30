@@ -4,8 +4,8 @@ import {
   Button,
   Card,
   CardContent,
-  Chip,
   Grid,
+  Rating,
   Skeleton,
   Table,
   TableBody,
@@ -16,292 +16,358 @@ import {
   Typography,
 } from '@mui/material';
 import BusinessIcon from '@mui/icons-material/Business';
-import ReportProblemIcon from '@mui/icons-material/ReportProblem';
+import LocalHospitalIcon from '@mui/icons-material/LocalHospital';
+import AssignmentIcon from '@mui/icons-material/Assignment';
 import WarningIcon from '@mui/icons-material/Warning';
-import AddIcon from '@mui/icons-material/Add';
-import PersonAddIcon from '@mui/icons-material/PersonAdd';
-import LocalOfferIcon from '@mui/icons-material/LocalOffer';
-import ShieldIcon from '@mui/icons-material/Shield';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import ReportProblemIcon from '@mui/icons-material/ReportProblem';
+import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
+import StarIcon from '@mui/icons-material/Star';
+import VisibilityIcon from '@mui/icons-material/Visibility';
 import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '@/api/reportApi';
-import { dashboardApi } from '@/api/dashboardApi';
+import { stationApi } from '@/api/stationApi';
+import { agencyApi } from '@/api/agencyApi';
+import { applianceApi } from '@/api/applianceApi';
+import { reviewApi } from '@/api/reviewApi';
+import { MetricCard } from './MetricCard';
+import { AgencyPerformanceCard } from './AgencyPerformanceCard';
+import { RequiresAttentionPanel } from './RequiresAttentionPanel';
+import { EmergencyActivityChart } from './EmergencyActivityChart';
 import { useAuthStore } from '@/auth/useAuthStore';
 import { useNavigate } from 'react-router-dom';
-import { EmergencyActivityChart } from './EmergencyActivityChart';
-import { DashboardHero } from './DashboardHero';
-import { MetricCard } from './MetricCard';
-import { RequiresAttentionPanel } from './RequiresAttentionPanel';
-import { AgencyPerformanceCard } from './AgencyPerformanceCard';
 
 export const DashboardPage: React.FC = () => {
-  const { user, hasRole, hasPermission, roles } = useAuthStore();
   const navigate = useNavigate();
+  const { user, hasPermission, hasRole } = useAuthStore();
   const isSysAdmin = hasRole('SYSTEM_ADMIN');
 
-  const { data: summary, isLoading: loadingSummary } = useQuery({
-    queryKey: ['dashboardSummary'],
-    queryFn: dashboardApi.getSummary,
-  });
-
   const { data: reportsPage, isLoading: loadingReports } = useQuery({
-    queryKey: ['reports', 0, 10],
-    queryFn: () => reportApi.getReports(0, 10),
+    queryKey: ['dashboardReports'],
+    queryFn: () => reportApi.getReports(0, 100),
     enabled: hasPermission('REPORT_READ'),
   });
 
+  const { data: stationsPage, isLoading: loadingStations } = useQuery({
+    queryKey: ['dashboardStations'],
+    queryFn: () => stationApi.getAdminStations(0, 1),
+    enabled: hasPermission('STATION_READ'),
+  });
+
+  const { data: agencies, isLoading: loadingAgencies } = useQuery({
+    queryKey: ['dashboardAgencies'],
+    queryFn: agencyApi.getAgencies,
+    enabled: hasPermission('AGENCY_READ'),
+  });
+
+  const { data: applianceSummary, isLoading: loadingAppliances } = useQuery({
+    queryKey: ['applianceSummary'],
+    queryFn: applianceApi.getSummary,
+    enabled: hasPermission('STATION_READ') && !isSysAdmin,
+  });
+
+  const { data: reviewSummary, isLoading: loadingReviews } = useQuery({
+    queryKey: ['reviewSummary'],
+    queryFn: () => reviewApi.getSummary(),
+    enabled: hasPermission('REPORT_READ') && !isSysAdmin,
+  });
+
+  const { data: recentReviewsPage } = useQuery({
+    queryKey: ['recentReviews'],
+    queryFn: () => reviewApi.getReviews(0, 3),
+    enabled: hasPermission('REPORT_READ') && !isSysAdmin,
+  });
+
   const reports = reportsPage?.content || [];
+  const recentReviews = recentReviewsPage?.content || [];
 
-  const roleTitle = isSysAdmin
-    ? 'SYSTEM ADMIN — National Platform Oversight'
-    : user?.agencyName
-    ? `${user.agencyName} ${user.region ? `(${user.region})` : ''} — ${roles[0] || 'Agency Staff'}`
-    : `${roles[0] || 'User'} Command Dashboard`;
+  const openIncidentsCount = reports.filter(
+    (r) => r.status === 'SUBMITTED' || r.status === 'RECEIVED' || r.status === 'ACKNOWLEDGED' || r.status === 'IN_PROGRESS'
+  ).length;
 
-  const heroSubtitle = isSysAdmin
-    ? 'Monitor national emergency response timelines, agency performance, and cross-service coordination.'
-    : `Coordinate emergency incidents, dispatch stations, and maintain operational response status for ${user?.agencyName || 'your agency'}.`;
+  const criticalCount = reports.filter((r) => r.severity === 'CRITICAL').length;
+
+  const unacknowledgedCount = reports.filter(
+    (r) => r.status === 'SUBMITTED' || r.status === 'RECEIVED'
+  ).length;
 
   return (
     <Box>
-      {/* Premium Dashboard Hero */}
-      <DashboardHero
-        userName={user?.firstName}
-        roleTitle={roleTitle}
-        subtitle={heroSubtitle}
-      />
-
-      {/* Quick Actions Bar */}
-      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
-        <Typography variant="h6" fontWeight="bold">
-          Emergency Operations Command & Statistics
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h4" fontWeight="bold" gutterBottom>
+          {isSysAdmin ? 'National Emergency Operations Command' : `${user?.agencyName || 'Agency'} Emergency Operations`}
         </Typography>
-
-        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-          {hasPermission('AGENCY_CREATE') && (
-            <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={() => navigate('/agencies')}>
-              New Agency
-            </Button>
-          )}
-          {hasPermission('STATION_CREATE') && (
-            <Button variant="contained" color="secondary" size="small" startIcon={<LocalOfferIcon />} onClick={() => navigate('/stations')}>
-              New Station
-            </Button>
-          )}
-          {hasPermission('ADMIN_USER_CREATE') && (
-            <Button variant="outlined" size="small" startIcon={<PersonAddIcon />} onClick={() => navigate('/users')}>
-              Add Admin User
-            </Button>
-          )}
-        </Box>
+        <Typography variant="body1" color="text.secondary">
+          {isSysAdmin
+            ? 'Real-time multi-agency coordination, station readiness, and incident response monitoring across Ghana'
+            : 'Operational dispatch readiness, active incident handling, and fleet availability'}
+        </Typography>
       </Box>
 
-      {/* Redesigned Metric Cards Grid */}
+      {/* Primary KPI Metrics */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={6} md={3}>
-          <MetricCard
-            title="Reports Today"
-            value={loadingSummary ? <Skeleton width={40} /> : summary?.reportsToday || 0}
-            subtitle="Incidents submitted today"
-            icon={<ReportProblemIcon />}
-            iconBg="#EFF6FF"
-            iconColor="#0066CC"
-            trendText="Active Today"
-            trendType="info"
-          />
-        </Grid>
+        {hasPermission('AGENCY_READ') && isSysAdmin && (
+          <Grid item xs={12} sm={6} md={2.4}>
+            <MetricCard
+              title="Responding Agencies"
+              value={loadingAgencies ? <Skeleton width={40} /> : agencies?.length || 0}
+              subtitle="Active national services"
+              icon={<BusinessIcon />}
+              iconBg="#EFF6FF"
+              iconColor="#0066CC"
+            />
+          </Grid>
+        )}
 
-        <Grid item xs={12} sm={6} md={3}>
-          <MetricCard
-            title="Awaiting Response"
-            value={loadingSummary ? <Skeleton width={40} /> : summary?.unacknowledgedReports || 0}
-            subtitle="Pending acknowledgement"
-            icon={<AccessTimeIcon />}
-            iconBg="#FEF3C7"
-            iconColor="#D97706"
-            trendText={summary?.unacknowledgedReports ? `${summary.unacknowledgedReports} pending` : 'All clear'}
-            trendType={summary?.unacknowledgedReports ? 'warning' : 'success'}
-          />
-        </Grid>
+        {hasPermission('STATION_READ') && (
+          <Grid item xs={12} sm={6} md={isSysAdmin ? 2.4 : 3}>
+            <MetricCard
+              title="Active Stations"
+              value={loadingStations ? <Skeleton width={40} /> : stationsPage?.totalElements || 0}
+              subtitle="Operational centers"
+              icon={<LocalHospitalIcon />}
+              iconBg="#ECFDF5"
+              iconColor="#059669"
+            />
+          </Grid>
+        )}
 
-        <Grid item xs={12} sm={6} md={3}>
-          <MetricCard
-            title="Critical Incidents"
-            value={loadingSummary ? <Skeleton width={40} /> : summary?.criticalIncidents || 0}
-            subtitle="High & critical priority"
-            icon={<WarningIcon />}
-            iconBg="#FEF2F2"
-            iconColor="#D32F2F"
-            trendText="Priority Alert"
-            trendType="critical"
-          />
-        </Grid>
+        {hasPermission('REPORT_READ') && (
+          <>
+            <Grid item xs={12} sm={6} md={isSysAdmin ? 2.4 : 3}>
+              <MetricCard
+                title="Active Incidents"
+                value={loadingReports ? <Skeleton width={40} /> : openIncidentsCount}
+                subtitle="Open responses"
+                icon={<AssignmentIcon />}
+                iconBg="#FEF3C7"
+                iconColor="#D97706"
+                trendType={openIncidentsCount > 5 ? 'warning' : 'info'}
+              />
+            </Grid>
 
-        <Grid item xs={12} sm={6} md={3}>
-          <MetricCard
-            title="Operational Stations"
-            value={loadingSummary ? <Skeleton width={40} /> : summary?.activeStations || 0}
-            subtitle="Verified emergency units"
-            icon={<LocalOfferIcon />}
-            iconBg="#ECFDF5"
-            iconColor="#059669"
-            trendText="Active Units"
-            trendType="success"
-          />
-        </Grid>
+            <Grid item xs={12} sm={6} md={isSysAdmin ? 2.4 : 3}>
+              <MetricCard
+                title="Critical Incidents"
+                value={loadingReports ? <Skeleton width={40} /> : criticalCount}
+                subtitle="High priority alerts"
+                icon={<WarningIcon />}
+                iconBg="#FEF2F2"
+                iconColor="#D32F2F"
+                trendType={criticalCount > 0 ? 'critical' : 'success'}
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={isSysAdmin ? 2.4 : 3}>
+              <MetricCard
+                title="Awaiting Action"
+                value={loadingReports ? <Skeleton width={40} /> : unacknowledgedCount}
+                subtitle="Unacknowledged reports"
+                icon={<ReportProblemIcon />}
+                iconBg="#F3F4F6"
+                iconColor="#4B5563"
+                trendType={unacknowledgedCount > 0 ? 'warning' : 'success'}
+              />
+            </Grid>
+          </>
+        )}
       </Grid>
+
+      {/* Agency Admin Operations & Review Cards */}
+      {!isSysAdmin && (
+        <Grid container spacing={3} sx={{ mb: 4 }}>
+          {/* Appliance Availability Card */}
+          <Grid item xs={12} md={6}>
+            <Card sx={{ height: '100%' }}>
+              <CardContent sx={{ p: 3 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <DirectionsCarIcon sx={{ color: 'primary.main' }} />
+                    <Typography variant="h6" fontWeight="bold">
+                      Appliance Fleet Status
+                    </Typography>
+                  </Box>
+                  <Button size="small" onClick={() => navigate('/appliances')}>
+                    Manage Fleet
+                  </Button>
+                </Box>
+
+                {loadingAppliances ? (
+                  <Skeleton height={100} />
+                ) : (
+                  <Grid container spacing={2}>
+                    <Grid item xs={6} sm={3}>
+                      <Typography variant="caption" color="text.secondary" display="block">TOTAL</Typography>
+                      <Typography variant="h5" fontWeight="bold">{applianceSummary?.total || 0}</Typography>
+                    </Grid>
+                    <Grid item xs={6} sm={3}>
+                      <Typography variant="caption" color="success.main" fontWeight="bold" display="block">AVAILABLE</Typography>
+                      <Typography variant="h5" fontWeight="bold" color="success.main">{applianceSummary?.available || 0}</Typography>
+                    </Grid>
+                    <Grid item xs={6} sm={3}>
+                      <Typography variant="caption" color="warning.main" fontWeight="bold" display="block">RESPONSE</Typography>
+                      <Typography variant="h5" fontWeight="bold" color="warning.main">{applianceSummary?.atEmergency || 0}</Typography>
+                    </Grid>
+                    <Grid item xs={6} sm={3}>
+                      <Typography variant="caption" color="error.main" fontWeight="bold" display="block">OUT OF COMM.</Typography>
+                      <Typography variant="h5" fontWeight="bold" color="error.main">{applianceSummary?.outOfCommission || 0}</Typography>
+                    </Grid>
+                  </Grid>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Citizen Response Rating Card */}
+          <Grid item xs={12} md={6}>
+            <Card sx={{ height: '100%' }}>
+              <CardContent sx={{ p: 3 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <StarIcon sx={{ color: '#D97706' }} />
+                    <Typography variant="h6" fontWeight="bold">
+                      Citizen Response Rating
+                    </Typography>
+                  </Box>
+                  <Button size="small" onClick={() => navigate('/reviews')}>
+                    View All Reviews
+                  </Button>
+                </Box>
+
+                {loadingReviews ? (
+                  <Skeleton height={100} />
+                ) : (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                    <Box sx={{ textAlign: 'center' }}>
+                      <Typography variant="h3" fontWeight="bold" color="primary.main">
+                        {reviewSummary?.averageRating ? reviewSummary.averageRating.toFixed(1) : 'N/A'}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Out of 5 stars
+                      </Typography>
+                    </Box>
+
+                    <Box sx={{ flexGrow: 1 }}>
+                      <Rating value={reviewSummary?.averageRating || 0} precision={0.1} readOnly size="medium" />
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                        Based on {reviewSummary?.totalReviews || 0} citizen feedback ratings
+                      </Typography>
+                    </Box>
+                  </Box>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      )}
 
       {/* Requires Attention Command Panel */}
       {hasPermission('REPORT_READ') && (
         <RequiresAttentionPanel reports={reports} isLoading={loadingReports} />
       )}
 
-      {/* System Admin Agency Performance Overview */}
+      {/* System Admin National Performance Overview */}
       {isSysAdmin && (
-        <Box sx={{ mb: 4 }}>
-          <Typography variant="h6" fontWeight="bold" gutterBottom>
-            National Agency Response Performance
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            National platform oversight breakdown across major participating emergency services
-          </Typography>
-
-          <Grid container spacing={3}>
-            <Grid item xs={12} sm={6} md={3}>
-              <AgencyPerformanceCard
-                agencyName="Ghana Police Service"
-                agencyCode="GPS"
-                agencyType="POLICE"
-                totalIncidents={reports.filter(r => r.targetAgencyTypes?.includes('POLICE')).length}
-                unacknowledgedCount={reports.filter(r => r.targetAgencyTypes?.includes('POLICE') && r.status === 'SUBMITTED').length}
-                inProgressCount={reports.filter(r => r.targetAgencyTypes?.includes('POLICE') && r.status === 'IN_PROGRESS').length}
-                resolvedCount={reports.filter(r => r.targetAgencyTypes?.includes('POLICE') && r.status === 'RESOLVED').length}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={6} md={3}>
-              <AgencyPerformanceCard
-                agencyName="Ghana National Fire Service"
-                agencyCode="GNFS"
-                agencyType="FIRE"
-                totalIncidents={reports.filter(r => r.targetAgencyTypes?.includes('FIRE')).length}
-                unacknowledgedCount={reports.filter(r => r.targetAgencyTypes?.includes('FIRE') && r.status === 'SUBMITTED').length}
-                inProgressCount={reports.filter(r => r.targetAgencyTypes?.includes('FIRE') && r.status === 'IN_PROGRESS').length}
-                resolvedCount={reports.filter(r => r.targetAgencyTypes?.includes('FIRE') && r.status === 'RESOLVED').length}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={6} md={3}>
-              <AgencyPerformanceCard
-                agencyName="National Ambulance Service"
-                agencyCode="NAS"
-                agencyType="AMBULANCE"
-                totalIncidents={reports.filter(r => r.targetAgencyTypes?.includes('AMBULANCE')).length}
-                unacknowledgedCount={reports.filter(r => r.targetAgencyTypes?.includes('AMBULANCE') && r.status === 'SUBMITTED').length}
-                inProgressCount={reports.filter(r => r.targetAgencyTypes?.includes('AMBULANCE') && r.status === 'IN_PROGRESS').length}
-                resolvedCount={reports.filter(r => r.targetAgencyTypes?.includes('AMBULANCE') && r.status === 'RESOLVED').length}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={6} md={3}>
-              <AgencyPerformanceCard
-                agencyName="NADMO Emergency Service"
-                agencyCode="NADMO"
-                agencyType="DISASTER_MANAGEMENT"
-                totalIncidents={reports.filter(r => r.targetAgencyTypes?.includes('DISASTER_MANAGEMENT')).length}
-                unacknowledgedCount={reports.filter(r => r.targetAgencyTypes?.includes('DISASTER_MANAGEMENT') && r.status === 'SUBMITTED').length}
-                inProgressCount={reports.filter(r => r.targetAgencyTypes?.includes('DISASTER_MANAGEMENT') && r.status === 'IN_PROGRESS').length}
-                resolvedCount={reports.filter(r => r.targetAgencyTypes?.includes('DISASTER_MANAGEMENT') && r.status === 'RESOLVED').length}
-              />
-            </Grid>
+        <Grid container spacing={3} sx={{ mb: 4 }}>
+          <Grid item xs={12} sm={6} md={3}>
+            <AgencyPerformanceCard
+              agencyName="Ghana Police Service"
+              agencyCode="GPS"
+              agencyType="POLICE"
+              totalIncidents={reports.filter((r) => r.targetAgencyTypes?.includes('POLICE')).length}
+              unacknowledgedCount={reports.filter((r) => r.targetAgencyTypes?.includes('POLICE') && r.status === 'SUBMITTED').length}
+              inProgressCount={reports.filter((r) => r.targetAgencyTypes?.includes('POLICE') && r.status === 'IN_PROGRESS').length}
+              resolvedCount={reports.filter((r) => r.targetAgencyTypes?.includes('POLICE') && r.status === 'RESOLVED').length}
+            />
           </Grid>
-        </Box>
+          <Grid item xs={12} sm={6} md={3}>
+            <AgencyPerformanceCard
+              agencyName="Ghana National Fire Service"
+              agencyCode="GNFS"
+              agencyType="FIRE"
+              totalIncidents={reports.filter((r) => r.targetAgencyTypes?.includes('FIRE')).length}
+              unacknowledgedCount={reports.filter((r) => r.targetAgencyTypes?.includes('FIRE') && r.status === 'SUBMITTED').length}
+              inProgressCount={reports.filter((r) => r.targetAgencyTypes?.includes('FIRE') && r.status === 'IN_PROGRESS').length}
+              resolvedCount={reports.filter((r) => r.targetAgencyTypes?.includes('FIRE') && r.status === 'RESOLVED').length}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <AgencyPerformanceCard
+              agencyName="National Ambulance Service"
+              agencyCode="NAS"
+              agencyType="AMBULANCE"
+              totalIncidents={reports.filter((r) => r.targetAgencyTypes?.includes('AMBULANCE')).length}
+              unacknowledgedCount={reports.filter((r) => r.targetAgencyTypes?.includes('AMBULANCE') && r.status === 'SUBMITTED').length}
+              inProgressCount={reports.filter((r) => r.targetAgencyTypes?.includes('AMBULANCE') && r.status === 'IN_PROGRESS').length}
+              resolvedCount={reports.filter((r) => r.targetAgencyTypes?.includes('AMBULANCE') && r.status === 'RESOLVED').length}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <AgencyPerformanceCard
+              agencyName="NADMO"
+              agencyCode="NADMO"
+              agencyType="DISASTER_MANAGEMENT"
+              totalIncidents={reports.filter((r) => r.targetAgencyTypes?.includes('DISASTER_MANAGEMENT')).length}
+              unacknowledgedCount={reports.filter((r) => r.targetAgencyTypes?.includes('DISASTER_MANAGEMENT') && r.status === 'SUBMITTED').length}
+              inProgressCount={reports.filter((r) => r.targetAgencyTypes?.includes('DISASTER_MANAGEMENT') && r.status === 'IN_PROGRESS').length}
+              resolvedCount={reports.filter((r) => r.targetAgencyTypes?.includes('DISASTER_MANAGEMENT') && r.status === 'RESOLVED').length}
+            />
+          </Grid>
+        </Grid>
       )}
 
-      {/* Emergency Activity Line Chart */}
-      <EmergencyActivityChart />
-
-      {/* Recent Incidents Table */}
-      {hasPermission('REPORT_READ') && (
-        <Card sx={{ mt: 4 }}>
+      {/* Recent Feedback Section */}
+      {!isSysAdmin && recentReviews.length > 0 && (
+        <Card sx={{ mb: 4 }}>
           <CardContent sx={{ p: 3 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
               <Typography variant="h6" fontWeight="bold">
-                Recent Emergency Operational Logs
+                Recent Citizen Feedback
               </Typography>
-
-              <Button size="small" onClick={() => navigate('/reports')}>
-                View Full Registry
+              <Button size="small" onClick={() => navigate('/reviews')}>
+                View All Reviews
               </Button>
             </Box>
 
-            {loadingReports ? (
-              <Skeleton variant="rectangular" height={200} />
-            ) : (
-              <TableContainer>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Reference</TableCell>
-                      <TableCell>Category</TableCell>
-                      <TableCell>Severity</TableCell>
-                      <TableCell>Mode</TableCell>
-                      <TableCell>Status</TableCell>
-                      <TableCell>Submitted Time</TableCell>
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Date</TableCell>
+                    <TableCell>Report Reference</TableCell>
+                    <TableCell>Rating</TableCell>
+                    <TableCell>Comment</TableCell>
+                    <TableCell align="right">Action</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {recentReviews.map((rev) => (
+                    <TableRow key={rev.id} hover>
+                      <TableCell>{new Date(rev.createdAt).toLocaleString()}</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', color: 'primary.main' }}>{rev.publicReference || 'Report'}</TableCell>
+                      <TableCell>
+                        <Rating value={rev.rating} readOnly size="small" />
+                      </TableCell>
+                      <TableCell>{rev.comment || 'No comment'}</TableCell>
+                      <TableCell align="right">
+                        <Button size="small" startIcon={<VisibilityIcon />} onClick={() => navigate(`/reports/${rev.reportId}`)}>
+                          View
+                        </Button>
+                      </TableCell>
                     </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {reports.map((report) => (
-                      <TableRow
-                        key={report.id}
-                        hover
-                        sx={{ cursor: 'pointer' }}
-                        onClick={() => navigate(`/reports/${report.id}`)}
-                      >
-                        <TableCell sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-                          {report.publicReference}
-                        </TableCell>
-                        <TableCell>{report.categoryName || 'Incident'}</TableCell>
-                        <TableCell>
-                          <Chip
-                            label={report.severity}
-                            color={report.severity === 'CRITICAL' ? 'error' : 'default'}
-                            size="small"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Chip
-                            label={report.mode}
-                            color={report.mode === 'SILENT' ? 'secondary' : 'default'}
-                            size="small"
-                            variant="outlined"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Chip
-                            label={report.status}
-                            size="small"
-                            color={report.status === 'RESOLVED' ? 'success' : report.status === 'IN_PROGRESS' ? 'warning' : 'default'}
-                          />
-                        </TableCell>
-                        <TableCell>{new Date(report.createdAt).toLocaleString()}</TableCell>
-                      </TableRow>
-                    ))}
-                    {reports.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={6} align="center" sx={{ py: 3 }}>
-                          No recent incident reports found.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            )}
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
           </CardContent>
         </Card>
       )}
+
+      {/* National Emergency Incident Activity Chart */}
+      <Grid container spacing={3}>
+        <Grid item xs={12}>
+          <EmergencyActivityChart />
+        </Grid>
+      </Grid>
     </Box>
   );
 };

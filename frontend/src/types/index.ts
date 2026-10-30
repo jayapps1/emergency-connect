@@ -1,10 +1,18 @@
+export type UserRole =
+  | 'ROLE_SYSTEM_ADMIN'
+  | 'ROLE_AGENCY_ADMIN'
+  | 'ROLE_REGIONAL_ADMIN'
+  | 'ROLE_STATION_ADMIN'
+  | 'ROLE_DISPATCHER'
+  | 'ROLE_RESPONDER';
+
 export type AgencyType = 'FIRE' | 'POLICE' | 'AMBULANCE' | 'DISASTER_MANAGEMENT' | 'OTHER';
 
-export type StationContactType = 'WATCHROOM' | 'CONTROL_ROOM' | 'EMERGENCY' | 'ALTERNATIVE' | 'ADMINISTRATIVE' | 'OTHER';
+export type StationLevel = 'NATIONAL_HQ' | 'RHQ' | 'DIVISIONAL_HQ' | 'DISTRICT_STATION' | 'SUB_STATION';
 
-export type StationLevel = 'NHQ' | 'RHQ' | 'DISTRICT_STATION';
+export type StationContactType = 'DISPATCH_HOTLINE' | 'COMMAND_DESK' | 'ALT_HOTLINE' | 'SMS_WHATSAPP' | 'STATION_MOBILE' | 'WATCHROOM';
 
-export type ReportMode = 'SILENT' | 'GENERAL';
+export type ReportMode = 'SILENT' | 'GENERAL' | 'CALL';
 
 export type IncidentSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
@@ -12,20 +20,88 @@ export type ReportStatus =
   | 'DRAFT'
   | 'SUBMITTED'
   | 'RECEIVED'
-  | 'ACKNOWLEDGED'
   | 'ASSIGNED'
+  | 'ACKNOWLEDGED'
   | 'IN_PROGRESS'
+  | 'TRANSFERRED'
   | 'RESOLVED'
   | 'CLOSED'
-  | 'REJECTED'
-  | 'DUPLICATE'
-  | 'TRANSFERRED';
+  | 'REJECTED';
+
+export interface User {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phoneNumber?: string;
+  agencyId?: string;
+  agencyName?: string;
+  region?: string;
+  stationId?: string;
+  stationName?: string;
+  active: boolean;
+  locked: boolean;
+  mustChangePassword: boolean;
+  lastLoginAt?: string;
+  roles: string[];
+}
+
+export type AdminUser = User;
+
+export interface Page<T> {
+  content: T[];
+  totalElements: number;
+  totalPages: number;
+  size: number;
+  number: number;
+  empty: boolean;
+}
+
+export interface LoginResponse {
+  accessToken: string;
+  expiresInSeconds: number;
+  user: User;
+  roles?: string[];
+  permissions?: string[];
+  mustChangePassword?: boolean;
+  authenticationState?: string;
+  mfaChallenge?: any;
+}
+
+export interface AuditLog {
+  id: string;
+  actorId: string;
+  action: string;
+  targetType: string;
+  entityType?: string;
+  targetId?: string;
+  agencyId?: string;
+  details?: string;
+  description?: string;
+  ipAddress?: string;
+  userAgent?: string;
+  createdAt: string;
+}
+
+export interface RegionRef {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface DistrictRef {
+  id: string;
+  regionId: string;
+  code: string;
+  name: string;
+}
 
 export interface Agency {
   id: string;
-  name: string;
   code: string;
+  name: string;
   type: AgencyType;
+  primaryContactNumber?: string;
   emergencyNumber?: string;
   active: boolean;
   verified: boolean;
@@ -36,7 +112,7 @@ export interface Station {
   agencyId: string;
   name: string;
   code: string;
-  stationLevel?: StationLevel;
+  stationLevel: StationLevel;
   region: string;
   district: string;
   regionId?: string;
@@ -47,22 +123,6 @@ export interface Station {
   locationAccuracyMeters?: number;
   active: boolean;
   verified: boolean;
-}
-
-export interface RegionRef {
-  id: string;
-  code: string;
-  name: string;
-  active: boolean;
-}
-
-export interface DistrictRef {
-  id: string;
-  regionId: string;
-  code: string;
-  name: string;
-  assemblyType: string;
-  active: boolean;
 }
 
 export interface StationContact {
@@ -116,6 +176,8 @@ export interface AgencyAssignment {
   status: ReportStatus;
   assignedAt: string;
   updatedAt: string;
+  acknowledgementSlaState?: string;
+  responseStartSlaState?: string;
 }
 
 export interface DashboardSummary {
@@ -142,6 +204,8 @@ export interface AdminReportSummary {
   status: ReportStatus;
   createdAt: string;
   targetAgencyTypes: AgencyType[];
+  acknowledgementSlaState?: string;
+  responseStartSlaState?: string;
 }
 
 export interface AdminReportDetails {
@@ -167,75 +231,11 @@ export interface AdminReportDetails {
   createdAt: string;
   updatedAt: string;
   targetAgencyTypes: AgencyType[];
-  statusHistory: {
+  statusHistory: Array<{
     status: ReportStatus;
     note?: string;
     timestamp: string;
-  }[];
-  attachments?: ReportAttachment[];
-  agencyAssignments?: AgencyAssignment[];
-}
-
-export interface AdminUser {
-  id: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  phoneNumber?: string;
-  agencyId?: string;
-  agencyName?: string;
-  region?: string;
-  stationId?: string;
-  stationName?: string;
-  active: boolean;
-  locked: boolean;
-  mustChangePassword: boolean;
-  lastLoginAt?: string;
-  roles: string[];
-}
-
-export interface Role {
-  id: string;
-  code: string;
-  name: string;
-  description?: string;
-  systemRole: boolean;
-}
-
-export interface Permission {
-  id: string;
-  code: string;
-  name: string;
-  description?: string;
-}
-
-export interface AuditLog {
-  id: string;
-  actorUserId?: string;
-  action: string;
-  entityType: string;
-  entityId?: string;
-  agencyId?: string;
-  description?: string;
-  ipAddress?: string;
-  userAgent?: string;
-  createdAt: string;
-}
-
-export interface LoginResponse {
-  accessToken?: string;
-  expiresInSeconds?: number;
-  user: AdminUser;
-  roles: string[];
-  permissions: string[];
-  authenticationState?: 'AUTHENTICATED' | 'MFA_REQUIRED' | 'MFA_SETUP_REQUIRED';
-  mfaChallenge?: string;
-}
-
-export interface Page<T> {
-  content: T[];
-  totalElements: number;
-  totalPages: number;
-  size: number;
-  number: number;
+  }>;
+  attachments: ReportAttachment[];
+  agencyAssignments: AgencyAssignment[];
 }

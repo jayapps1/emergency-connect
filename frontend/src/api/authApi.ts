@@ -7,6 +7,11 @@ export const authApi = {
     return res.data;
   },
 
+  loginWithTotpDirect: async (email: string, code: string): Promise<LoginResponse> => {
+    const res = await apiClient.post<LoginResponse>('/api/v1/admin/auth/login/totp-direct', { email, code });
+    return res.data;
+  },
+
   startTotpSetup: async (challenge?: string): Promise<{ secret: string; manualSetupKey: string; provisioningUri: string }> => {
     const res = await apiClient.post<{ secret: string; manualSetupKey: string; provisioningUri: string }>('/api/v1/admin/auth/mfa/totp/setup', { challenge });
     return res.data;

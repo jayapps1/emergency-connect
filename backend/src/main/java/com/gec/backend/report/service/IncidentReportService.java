@@ -206,6 +206,9 @@ public class IncidentReportService {
         Set<AgencyType> targetAgencies = category.getDefaultAgencyTypes();
         for (AgencyType agencyType : targetAgencies) {
             List<AgencyEntity> matchingAgencies = agencyRepository.findByTypeAndActiveTrue(agencyType);
+            if (matchingAgencies.isEmpty()) {
+                matchingAgencies = agencyRepository.findByType(agencyType);
+            }
             UUID resolvedAgencyId = !matchingAgencies.isEmpty() ? matchingAgencies.get(0).getId() : null;
 
             ReportAssignmentEntity assignment = new ReportAssignmentEntity(
@@ -434,6 +437,19 @@ public class IncidentReportService {
             throw new IllegalStateException("An agency response can only be reviewed after the assignment is RESOLVED.");
         }
 
+        UUID resolvedAgencyId = assignment.getAgencyId();
+        if (resolvedAgencyId == null) {
+            List<AgencyEntity> matching = agencyRepository.findByTypeAndActiveTrue(assignment.getAgencyType());
+            if (matching.isEmpty()) {
+                matching = agencyRepository.findByType(assignment.getAgencyType());
+            }
+            if (!matching.isEmpty()) {
+                resolvedAgencyId = matching.get(0).getId();
+                assignment.setAgencyId(resolvedAgencyId);
+                assignmentRepository.save(assignment);
+            }
+        }
+
         Optional<IncidentResponseReviewEntity> existingOpt = reviewRepository
             .findByAssignmentIdAndPublicUserId(assignmentId, principal.getId());
 
@@ -445,6 +461,7 @@ public class IncidentReportService {
             review.setProfessionalismRating(professionalismRating);
             review.setHelpfulnessRating(helpfulnessRating);
             review.setComment(comment != null ? comment.trim() : null);
+            review.setAgencyId(resolvedAgencyId);
             review.setUpdatedAt(LocalDateTime.now());
         } else {
             review = new IncidentResponseReviewEntity(
@@ -452,7 +469,7 @@ public class IncidentReportService {
                 report.getId(),
                 assignmentId,
                 principal.getId(),
-                assignment.getAgencyId(),
+                resolvedAgencyId,
                 rating,
                 responseSpeedRating,
                 professionalismRating,

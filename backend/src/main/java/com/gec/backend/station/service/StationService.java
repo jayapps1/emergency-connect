@@ -34,19 +34,14 @@ import java.util.UUID;
  *
  * <p>Key Business & Security Rules:
  * <ul>
- *   <li><b>Verification Hierarchy:</b> Stations are created in an unverified state. A station must be
- *       verified before any of its associated contacts can be verified or published.</li>
- *   <li><b>Public Publication Eligibility:</b> Public APIs publish contacts only when ALL four
- *       conditions hold: station is active, station is verified, contact is active, contact is verified,
- *       and contact is explicitly flagged as publicContact = true.</li>
- *   <li><b>Visibility Control:</b> The publicContact flag governs mobile app publication and is independent
- *       of the active status. Internal contacts are accessible solely to authenticated administrators.</li>
- *   <li><b>Priority Uniqueness:</b> Contact priority ordering is strictly unique per station (e.g. Priority #1
- *       is unique per station compound). Attempts to assign duplicate priorities return HTTP 409 CONFLICT.</li>
- *   <li><b>Phone Normalization & Duplication:</b> All station telephone numbers are normalized to canonical
- *       Ghana format (+233XXXXXXXXX) and guaranteed unique across all station contacts to prevent routing conflicts.</li>
- *   <li><b>Administrative Scope:</b> Non-SYSTEM_ADMIN users are strictly isolated to their assigned agency
- *       or station scope.</li>
+ *   <li><b>Station Verification Boundary:</b> Station verification establishes the parent publication boundary.
+ *       Requiring a verified contact during station verification would create a circular dependency because contact
+ *       verification already requires a verified parent station.</li>
+ *   <li><b>Public Publication Eligibility:</b> Public APIs publish stations when {@code active = true} AND {@code verified = true}.
+ *       Contacts are published when contact {@code publicContact = true}, {@code active = true}, {@code verified = true},
+ *       and the parent station is both active and verified.</li>
+ *   <li><b>Visibility Control:</b> Station directory discovery depends on active and verified station state.
+ *       Contact availability affects calling features but never hides a published station from the directory.</li>
  * </ul>
  */
 @Service
@@ -79,8 +74,23 @@ public class StationService {
     }
 
     /**
+     * Returns every station currently eligible for public discovery across all
+     * emergency agencies. Station publication depends only on active and verified
+     * state; contact and appliance availability affect actions/presentation but
+     * never remove an otherwise published station from the directory.
+     *
+     * @return list of published station DTOs across all agencies
+     */
+    public List<StationResponse> getAllPublicActiveVerifiedStations() {
+        return stationRepository.findByActiveTrueAndVerifiedTrue()
+            .stream()
+            .map(stationMapper::toResponse)
+            .toList();
+    }
+
+    /**
      * Retrieves active and verified emergency stations belonging to a specific agency.
-     * Public Android clients consume this endpoint for nearby station discovery.
+     * Public Android clients consume this endpoint for agency-filtered station discovery.
      *
      * @param agencyId the target agency UUID
      * @return list of published station DTOs
@@ -385,7 +395,10 @@ public class StationService {
     }
 
     /**
-     * Marks a station as verified, allowing it to be published to mobile clients.
+     * Station verification establishes the parent publication boundary before
+     * individual contacts may be verified. Requiring a verified contact here
+     * would create a circular dependency because contact verification already
+     * requires a verified parent station.
      *
      * @param stationId the station UUID
      * @return verified station DTO
@@ -394,21 +407,6 @@ public class StationService {
     public StationResponse verifyStation(UUID stationId) {
         StationEntity station = stationRepository.findById(stationId)
             .orElseThrow(() -> new ResourceNotFoundException("Station not found: " + stationId));
-
-        boolean hasVerifiedPublicContact = contactRepository.findByStationIdAndPublicContactTrueAndActiveTrueAndVerifiedTrueOrderByPriorityAsc(stationId)
-            .stream().findFirst().isPresent();
-
-        if (!hasVerifiedPublicContact) {
-            List<StationContactEntity> contacts = contactRepository.findByStationIdOrderByPriorityAsc(stationId);
-            for (StationContactEntity c : contacts) {
-                if (c.isPublicContact() && c.isActive()) {
-                    c.setVerified(true);
-                    contactRepository.save(c);
-                    hasVerifiedPublicContact = true;
-                    break;
-                }
-            }
-        }
 
         station.setVerified(true);
         station.setUpdatedAt(LocalDateTime.now());
