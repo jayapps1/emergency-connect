@@ -7,6 +7,7 @@ public enum ReportStatus {
     ACKNOWLEDGED,
     ASSIGNED,
     IN_PROGRESS,
+    PARTIALLY_COMPLETED,
     RESOLVED,
     CLOSED,
     REJECTED,

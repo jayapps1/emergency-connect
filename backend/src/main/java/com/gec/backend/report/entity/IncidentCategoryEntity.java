@@ -35,6 +35,10 @@ public class IncidentCategoryEntity {
     @Column(name = "supports_call", nullable = false)
     private boolean supportsCall = false;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "tracking_policy", nullable = false)
+    private TrackingPolicy trackingPolicy = TrackingPolicy.INCIDENT_LOCATION;
+
     @Column(name = "display_order", nullable = false)
     private int displayOrder = 0;
 
@@ -85,6 +89,8 @@ public class IncidentCategoryEntity {
     public void setSupportsGeneral(boolean supportsGeneral) { this.supportsGeneral = supportsGeneral; }
     public boolean isSupportsCall() { return supportsCall; }
     public void setSupportsCall(boolean supportsCall) { this.supportsCall = supportsCall; }
+    public TrackingPolicy getTrackingPolicy() { return trackingPolicy; }
+    public void setTrackingPolicy(TrackingPolicy trackingPolicy) { this.trackingPolicy = trackingPolicy; }
     public int getDisplayOrder() { return displayOrder; }
     public void setDisplayOrder(int displayOrder) { this.displayOrder = displayOrder; }
     public boolean isActive() { return active; }

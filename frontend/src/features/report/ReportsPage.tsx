@@ -13,14 +13,18 @@ import {
   TableHead,
   TableRow,
   Tabs,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
+import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '@/api/reportApi';
 import { useNavigate } from 'react-router-dom';
 import { CallAttemptsPanel } from './CallAttemptsPanel';
 
+// Uses a compact read-state marker to highlight new incidents without reducing the visibility of incidents that have already been reviewed.
 export const ReportsPage: React.FC = () => {
   const [page] = useState(0);
   const [tabValue, setTabValue] = useState<string>('ALL');
@@ -80,6 +84,7 @@ export const ReportsPage: React.FC = () => {
               <Table>
                 <TableHead>
                   <TableRow>
+                    <TableCell width={50}></TableCell>
                     <TableCell>Reference</TableCell>
                     <TableCell>Category</TableCell>
                     <TableCell>Severity</TableCell>
@@ -90,52 +95,68 @@ export const ReportsPage: React.FC = () => {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {filteredReports.map((report) => (
-                    <TableRow key={report.id} hover>
-                      <TableCell
-                        sx={{ fontWeight: 'bold', cursor: 'pointer', color: 'primary.main' }}
-                        onClick={() => navigate(`/reports/${report.id}`)}
-                      >
-                        {report.publicReference}
-                      </TableCell>
-                      <TableCell>{report.categoryName || 'Incident'}</TableCell>
-                      <TableCell>
-                        <Chip
-                          label={report.severity}
-                          color={report.severity === 'CRITICAL' ? 'error' : 'default'}
-                          size="small"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          label={report.mode}
-                          color={report.mode === 'SILENT' ? 'secondary' : 'default'}
-                          size="small"
-                          variant="outlined"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          label={report.status}
-                          size="small"
-                          color={report.status === 'RESOLVED' ? 'success' : report.status === 'IN_PROGRESS' ? 'warning' : 'default'}
-                        />
-                      </TableCell>
-                      <TableCell>{new Date(report.createdAt).toLocaleString()}</TableCell>
-                      <TableCell align="right">
-                        <Chip
-                          icon={<VisibilityIcon fontSize="small" />}
-                          label="View & Handle"
-                          color="primary"
-                          clickable
+                  {filteredReports.map((report) => {
+                    const isUnread = report.unread !== false;
+                    return (
+                      <TableRow key={report.id} hover>
+                        <TableCell align="center">
+                          {isUnread ? (
+                            <Tooltip title="New / Unread Incident">
+                              <FiberManualRecordIcon color="error" sx={{ fontSize: 14 }} />
+                            </Tooltip>
+                          ) : (
+                            <Tooltip title="Read">
+                              <CheckCircleOutlineIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
+                            </Tooltip>
+                          )}
+                        </TableCell>
+                        <TableCell
+                          sx={{ fontWeight: isUnread ? 'bold' : 'normal', cursor: 'pointer', color: 'primary.main' }}
                           onClick={() => navigate(`/reports/${report.id}`)}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                        >
+                          {report.publicReference}
+                        </TableCell>
+                        <TableCell sx={{ fontWeight: isUnread ? 'bold' : 'normal' }}>
+                          {report.categoryName || 'Incident'}
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={report.severity}
+                            color={report.severity === 'CRITICAL' ? 'error' : 'default'}
+                            size="small"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={report.mode}
+                            color={report.mode === 'SILENT' ? 'secondary' : 'default'}
+                            size="small"
+                            variant="outlined"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={report.status}
+                            size="small"
+                            color={report.status === 'RESOLVED' ? 'success' : report.status === 'IN_PROGRESS' ? 'warning' : 'default'}
+                          />
+                        </TableCell>
+                        <TableCell>{new Date(report.createdAt).toLocaleString()}</TableCell>
+                        <TableCell align="right">
+                          <Chip
+                            icon={<VisibilityIcon fontSize="small" />}
+                            label="View & Handle"
+                            color="primary"
+                            clickable
+                            onClick={() => navigate(`/reports/${report.id}`)}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                   {filteredReports.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={7} align="center" sx={{ py: 3 }}>
+                      <TableCell colSpan={8} align="center" sx={{ py: 3 }}>
                         No incident reports found for the selected status tab.
                       </TableCell>
                     </TableRow>

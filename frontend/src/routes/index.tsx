@@ -16,12 +16,15 @@ import { PublicUsersPage } from '@/features/user/PublicUsersPage';
 import { UserDetailPage } from '@/features/user/UserDetailPage';
 import { TemporaryCredentialsPage } from '@/features/credentials/TemporaryCredentialsPage';
 import { AdminRequestsPage } from '@/features/requests/AdminRequestsPage';
-import { UserRequestsPage } from '@/features/requests/UserRequestsPage';
 import { AuditLogsPage } from '@/features/audit/AuditLogsPage';
 import { IncidentCategoriesPage } from '@/features/categories/IncidentCategoriesPage';
 import { SafetyInformationPage } from '@/features/safety/SafetyInformationPage';
+import { TrackingManagementPage } from '@/features/tracking/TrackingManagementPage';
+import { PublicTrackSharePage } from '@/features/tracking/PublicTrackSharePage';
 import { RolesPage } from '@/features/roles/RolesPage';
 import { SettingsPage } from '@/features/settings/SettingsPage';
+import { BackupManagementPage } from '@/features/backup/BackupManagementPage';
+import { CacheManagementPage } from '@/features/settings/CacheManagementPage';
 import { AdminLayout } from '@/layouts/AdminLayout';
 import { ProtectedRoute } from '@/auth/ProtectedRoute';
 import { PermissionRoute } from '@/auth/PermissionRoute';
@@ -31,6 +34,10 @@ export const createRouter = (toggleTheme: () => void, currentMode: 'light' | 'da
     {
       path: '/login',
       element: <LoginPage />,
+    },
+    {
+      path: '/track/:token',
+      element: <PublicTrackSharePage />,
     },
     {
       path: '/change-password-required',
@@ -119,6 +126,30 @@ export const createRouter = (toggleTheme: () => void, currentMode: 'light' | 'da
               ),
             },
             {
+              path: '/tracking',
+              element: (
+                <PermissionRoute permission="REPORT_READ">
+                  <TrackingManagementPage />
+                </PermissionRoute>
+              ),
+            },
+            {
+              path: '/backups',
+              element: (
+                <PermissionRoute permission="BACKUP_READ">
+                  <BackupManagementPage />
+                </PermissionRoute>
+              ),
+            },
+            {
+              path: '/cache-management',
+              element: (
+                <PermissionRoute permission="SYSTEM_SETTINGS_MANAGE">
+                  <CacheManagementPage />
+                </PermissionRoute>
+              ),
+            },
+            {
               path: '/responders',
               element: (
                 <PermissionRoute permission="ADMIN_USER_READ">
@@ -170,7 +201,7 @@ export const createRouter = (toggleTheme: () => void, currentMode: 'light' | 'da
               path: '/user-management-requests',
               element: (
                 <PermissionRoute permission="ADMIN_USER_READ">
-                  <UserRequestsPage />
+                  <AdminRequestsPage />
                 </PermissionRoute>
               ),
             },

@@ -1,17 +1,10 @@
 import { create } from 'zustand';
 import { AdminUser } from '@/types';
 
-/**
- * Zustand state store managing administrative authentication tokens, principal user profiles,
- * role assignments, and permission authorizations.
- *
- * <p>Access Control Rationale:
- * <ul>
- *   <li><b>SYSTEM_ADMIN:</b> Granted global authorization across all permissions implicitly via {@link hasPermission}.</li>
- *   <li><b>Permission Checks:</b> Fine-grained permission strings (e.g. {@code STATION_CREATE}, {@code STATION_VERIFY})
- *       are verified against the principal's permission array.</li>
- * </ul>
- */
+const INITIAL_TOKEN = typeof window !== 'undefined' ? localStorage.getItem('gec_access_token') : null;
+const INITIAL_ROLES = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('gec_roles') || '[]') : [];
+const INITIAL_PERMS = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('gec_permissions') || '[]') : [];
+
 interface AuthState {
   accessToken: string | null;
   user: AdminUser | null;
@@ -27,19 +20,26 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
-  accessToken: null,
+  accessToken: INITIAL_TOKEN,
   user: null,
-  roles: [],
-  permissions: [],
-  isAuthenticated: false,
+  roles: INITIAL_ROLES,
+  permissions: INITIAL_PERMS,
+  isAuthenticated: Boolean(INITIAL_TOKEN),
   isInitializing: true,
 
   setAuth: (token, user, roles = [], permissions = []) => {
+    const finalRoles = roles.length > 0 ? roles : user?.roles || [];
+    const finalPerms = permissions.length > 0 ? permissions : [];
+    try {
+      localStorage.setItem('gec_access_token', token);
+      localStorage.setItem('gec_roles', JSON.stringify(finalRoles));
+      localStorage.setItem('gec_permissions', JSON.stringify(finalPerms));
+    } catch (_: any) {}
     set({
       accessToken: token,
       user,
-      roles: roles.length > 0 ? roles : user.roles || [],
-      permissions: permissions.length > 0 ? permissions : [],
+      roles: finalRoles,
+      permissions: finalPerms,
       isAuthenticated: true,
       isInitializing: false,
     });
@@ -50,6 +50,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: () => {
+    try {
+      localStorage.removeItem('gec_access_token');
+      localStorage.removeItem('gec_roles');
+      localStorage.removeItem('gec_permissions');
+    } catch (_: any) {}
     set({
       accessToken: null,
       user: null,
@@ -63,12 +68,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   hasPermission: (permission) => {
     const { permissions, roles } = get();
     // System Administrators bypass specific permission checks
-    if (roles.includes('SYSTEM_ADMIN')) return true;
+    if (roles.includes('SYSTEM_ADMIN') || roles.includes('ROLE_SYSTEM_ADMIN')) return true;
     return permissions.includes(permission);
   },
 
   hasRole: (role) => {
     const { roles } = get();
-    return roles.includes(role) || roles.includes('SYSTEM_ADMIN');
+    return roles.includes(role) || roles.includes(`ROLE_${role}`) || roles.includes('SYSTEM_ADMIN') || roles.includes('ROLE_SYSTEM_ADMIN');
   },
 }));

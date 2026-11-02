@@ -9,7 +9,7 @@ import com.gec.backend.publicuser.entity.PublicUserEntity;
 import com.gec.backend.publicuser.repository.AppInstallationRepository;
 import com.gec.backend.publicuser.repository.PublicAuthSessionRepository;
 import com.gec.backend.publicuser.repository.PublicUserRepository;
-import com.gec.backend.report.repository.IncidentReportRepository;
+import com.gec.backend.report.repository.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -22,10 +22,8 @@ import java.time.LocalDateTime;
 import java.util.*;
 
 /**
- * Public accounts and anonymous installations are separate identities;
- * guest activity is never represented as a fake authenticated user.
- * System Admin public-user oversight exposes only privacy-safe identity
- * and account metadata.
+ * Applies the authenticated staff hierarchy to citizen queries so national,
+ * agency, regional, and station users receive only their authorized records.
  */
 @Service
 public class PublicAdminOversightService {
@@ -36,6 +34,9 @@ public class PublicAdminOversightService {
     private final AppInstallationRepository installationRepository;
     private final PublicAuthSessionRepository sessionRepository;
     private final IncidentReportRepository reportRepository;
+    private final IncidentResponseReviewRepository reviewRepository;
+    private final EmergencyCallAttemptRepository callAttemptRepository;
+    private final IncidentFollowUpRepository followUpRepository;
     private final AdminScopeService scopeService;
     private final AuditService auditService;
 
@@ -44,6 +45,9 @@ public class PublicAdminOversightService {
         AppInstallationRepository installationRepository,
         PublicAuthSessionRepository sessionRepository,
         IncidentReportRepository reportRepository,
+        IncidentResponseReviewRepository reviewRepository,
+        EmergencyCallAttemptRepository callAttemptRepository,
+        IncidentFollowUpRepository followUpRepository,
         AdminScopeService scopeService,
         AuditService auditService
     ) {
@@ -51,6 +55,9 @@ public class PublicAdminOversightService {
         this.installationRepository = installationRepository;
         this.sessionRepository = sessionRepository;
         this.reportRepository = reportRepository;
+        this.reviewRepository = reviewRepository;
+        this.callAttemptRepository = callAttemptRepository;
+        this.followUpRepository = followUpRepository;
         this.scopeService = scopeService;
         this.auditService = auditService;
     }
@@ -205,6 +212,7 @@ public class PublicAdminOversightService {
         return Map.of("userId", userId.toString(), "revokedCount", sessions.size());
     }
 
+    // Includes complaints linked directly to the citizen and legitimate history retained through installations used before account registration.
     private Map<String, Object> mapToPublicUserDto(PublicUserEntity user) {
         Map<String, Object> dto = new HashMap<>();
         dto.put("id", user.getId().toString());
@@ -217,7 +225,13 @@ public class PublicAdminOversightService {
         dto.put("lastLoginAt", user.getLastLoginAt() != null ? user.getLastLoginAt().toString() : null);
 
         long reportCount = reportRepository.countByReporterPublicUserId(user.getId());
+        long complaintCount = reviewRepository.countByPublicUserId(user.getId());
+        long callCount = callAttemptRepository.countByPublicUserId(user.getId());
+
         dto.put("reportCount", reportCount);
+        dto.put("complaintCount", complaintCount);
+        dto.put("callCount", callCount);
+        dto.put("followUpCount", 0L);
 
         List<PublicAuthSessionEntity> activeSessions = sessionRepository.findByPublicUserIdAndRevokedAtIsNull(user.getId());
         dto.put("activeSessionCount", activeSessions.size());

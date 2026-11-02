@@ -7,7 +7,10 @@ import com.gec.backend.report.dto.CreateCategoryRequest;
 import com.gec.backend.report.dto.IncidentCategoryResponse;
 import com.gec.backend.report.dto.UpdateCategoryRequest;
 import com.gec.backend.report.entity.IncidentCategoryEntity;
+import com.gec.backend.report.entity.TrackingPolicy;
 import com.gec.backend.report.repository.IncidentCategoryRepository;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,6 +36,7 @@ public class IncidentCategoryService {
         this.auditService = auditService;
     }
 
+    @Cacheable("incidentCategories")
     public List<IncidentCategoryResponse> getAllCategories() {
         return categoryRepository.findAllByOrderByDisplayOrderAscNameAsc().stream().map(this::mapToResponse).toList();
     }
@@ -44,6 +48,7 @@ public class IncidentCategoryService {
     }
 
     @Transactional
+    @CacheEvict(value = "incidentCategories", allEntries = true)
     public IncidentCategoryResponse createCategory(CreateCategoryRequest request) {
         if (request.supportsSilent() == request.supportsGeneral()) {
             throw new IllegalArgumentException("Incident category report mode must be exclusively Silent or General, not both.");
@@ -76,6 +81,7 @@ public class IncidentCategoryService {
     }
 
     @Transactional
+    @CacheEvict(value = "incidentCategories", allEntries = true)
     public IncidentCategoryResponse updateCategory(UUID id, UpdateCategoryRequest request) {
         if (request.supportsSilent() == request.supportsGeneral()) {
             throw new IllegalArgumentException("Incident category report mode must be exclusively Silent or General, not both.");
@@ -105,7 +111,30 @@ public class IncidentCategoryService {
         return mapToResponse(entity);
     }
 
+    // Loads backend-managed tracking policies so incident categories determine whether live location is unavailable, optional, or recommended.
     @Transactional
+    @CacheEvict(value = "incidentCategories", allEntries = true)
+    public IncidentCategoryResponse updateCategoryTrackingPolicy(UUID id, TrackingPolicy trackingPolicy) {
+        if (!scopeService.isSystemAdmin()) {
+            throw new IllegalArgumentException("Only System Administrators can update incident category tracking policies.");
+        }
+
+        IncidentCategoryEntity entity = categoryRepository.findById(id)
+            .orElseThrow(() -> new ResourceNotFoundException("Incident category not found: " + id));
+
+        entity.setTrackingPolicy(trackingPolicy);
+        entity.setUpdatedAt(LocalDateTime.now());
+        categoryRepository.save(entity);
+
+        UUID actorId = scopeService.getCurrentPrincipal().getId();
+        auditService.logAction(actorId, "INCIDENT_CATEGORY_TRACKING_POLICY_UPDATED", "INCIDENT_CATEGORY", id, null,
+            "Updated category tracking policy to " + trackingPolicy + " for " + entity.getName(), null, null);
+
+        return mapToResponse(entity);
+    }
+
+    @Transactional
+    @CacheEvict(value = "incidentCategories", allEntries = true)
     public IncidentCategoryResponse toggleCategoryStatus(UUID id) {
         IncidentCategoryEntity entity = categoryRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException("Incident category not found: " + id));
@@ -130,6 +159,7 @@ public class IncidentCategoryService {
             entity.isSupportsSilent(),
             entity.isSupportsGeneral(),
             entity.isSupportsCall(),
+            entity.getTrackingPolicy() != null ? entity.getTrackingPolicy() : TrackingPolicy.INCIDENT_LOCATION,
             entity.getDisplayOrder(),
             entity.isActive(),
             entity.getDefaultAgencyTypes() != null ? entity.getDefaultAgencyTypes() : Set.of()

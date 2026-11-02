@@ -3,7 +3,13 @@ import {
   AppBar,
   Avatar,
   Box,
+  Button,
+  Chip,
   CssBaseline,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   Drawer,
   IconButton,
@@ -16,9 +22,8 @@ import {
   Menu,
   MenuItem,
   Toolbar,
-  Typography,
-  Chip,
   Tooltip,
+  Typography,
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import DashboardIcon from '@mui/icons-material/Dashboard';
@@ -42,10 +47,17 @@ import ShieldIcon from '@mui/icons-material/Shield';
 import HealthAndSafetyIcon from '@mui/icons-material/HealthAndSafety';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import GpsFixedIcon from '@mui/icons-material/GpsFixed';
 import SecurityIcon from '@mui/icons-material/Security';
-import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import StorageIcon from '@mui/icons-material/Storage';
+import MemoryIcon from '@mui/icons-material/Memory';
+import { useLocation, useNavigate, Outlet } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/auth/useAuthStore';
+import { useIdleTimeout } from '@/auth/useIdleTimeout';
 import { authApi } from '@/api/authApi';
+import { reportApi } from '@/api/reportApi';
+import { adminRequestApi } from '@/api/adminRequestApi';
 
 const expandedDrawerWidth = 270;
 const collapsedDrawerWidth = 78;
@@ -68,6 +80,24 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ toggleTheme, currentMo
   const location = useLocation();
   const navigate = useNavigate();
   const { user, roles, logout, hasPermission, hasRole } = useAuthStore();
+  const { showWarning, handleStaySignedIn, handleSignOut } = useIdleTimeout();
+
+  // Treats realtime incident events as invalidation signals and refetches the authoritative unread count from the backend.
+  const { data: unreadData } = useQuery({
+    queryKey: ['unreadIncidentCount'],
+    queryFn: reportApi.getUnreadCount,
+    refetchInterval: 10000,
+  });
+
+  const { data: requestSummary } = useQuery({
+    queryKey: ['centralizedAdminRequestsCount'],
+    queryFn: adminRequestApi.getCentralizedRequests,
+    refetchInterval: 15000,
+    enabled: hasPermission('ADMIN_USER_READ'),
+  });
+
+  const unreadCount = unreadData?.unreadCount || 0;
+  const pendingAdminRequestsCount = requestSummary?.totalPendingCount || 0;
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -108,6 +138,8 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ toggleTheme, currentMo
         return 'Auditor';
       case 'RESPONDER':
         return 'Field Unit Responder';
+      case 'BACKUP_OPERATOR':
+        return 'Backup Operator';
       default:
         return rawRole.replace('ROLE_', '');
     }
@@ -126,12 +158,20 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ toggleTheme, currentMo
       subheader: 'OPERATIONS',
       items: [
         { label: 'Incident Reports', icon: <AssignmentIcon fontSize="small" />, path: '/reports', permission: 'REPORT_READ' },
+        { label: 'Tracking Management', icon: <GpsFixedIcon fontSize="small" />, path: '/tracking', permission: 'REPORT_READ' },
         { label: 'Field Responders', icon: <BadgeIcon fontSize="small" />, path: '/responders', permission: 'ADMIN_USER_READ' },
         { label: 'Appliance Management', icon: <DirectionsCarIcon fontSize="small" />, path: '/appliances', permission: 'STATION_READ' },
         { label: 'Emergency Stations', icon: <LocalHospitalIcon fontSize="small" />, path: '/stations', permission: 'STATION_READ' },
         { label: 'Responding Agencies', icon: <BusinessIcon fontSize="small" />, path: '/agencies', permission: 'AGENCY_READ' },
         { label: 'Incident Categories', icon: <CategoryIcon fontSize="small" />, path: '/incident-categories', permission: 'INCIDENT_CATEGORY_READ' },
         { label: 'Safety Information', icon: <HealthAndSafetyIcon fontSize="small" />, path: '/safety-information', permission: 'REPORT_READ' },
+      ],
+    },
+    {
+      subheader: 'INFRASTRUCTURE',
+      items: [
+        { label: 'Backup & Recovery', icon: <StorageIcon fontSize="small" />, path: '/backups', permission: 'BACKUP_READ' },
+        { label: 'Cache Management', icon: <MemoryIcon fontSize="small" />, path: '/cache-management', permission: 'SYSTEM_SETTINGS_MANAGE' },
       ],
     },
     {
@@ -298,7 +338,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ toggleTheme, currentMo
         </Box>
       )}
 
-      {/* Navigation Links with Custom Scrollbar */}
+      {/* Navigation Links */}
       <Box
         sx={{
           flexGrow: 1,
@@ -365,19 +405,6 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ toggleTheme, currentMo
                           color: '#F8FAFC',
                           '& .MuiListItemIcon-root': { color: '#38BDF8' },
                         },
-                        '&::before': isSelected
-                          ? {
-                              content: '""',
-                              position: 'absolute',
-                              left: 0,
-                              top: 8,
-                              bottom: 8,
-                              width: 3,
-                              borderRadius: '0 4px 4px 0',
-                              bgcolor: '#38BDF8',
-                              boxShadow: '0 0 8px #38BDF8',
-                            }
-                          : {},
                       }}
                     >
                       <ListItemIcon
@@ -398,6 +425,22 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ toggleTheme, currentMo
                             fontWeight: isSelected ? 'bold' : '500',
                             letterSpacing: '0.01em',
                           }}
+                        />
+                      )}
+                      {!collapsed && item.path === '/reports' && unreadCount > 0 && (
+                        <Chip
+                          label={unreadCount > 99 ? '99+' : unreadCount}
+                          color="error"
+                          size="small"
+                          sx={{ height: 20, fontSize: '0.7rem', fontWeight: 'bold', ml: 1 }}
+                        />
+                      )}
+                      {!collapsed && item.path === '/admin-requests' && pendingAdminRequestsCount > 0 && (
+                        <Chip
+                          label={pendingAdminRequestsCount > 99 ? '99+' : pendingAdminRequestsCount}
+                          color="warning"
+                          size="small"
+                          sx={{ height: 20, fontSize: '0.7rem', fontWeight: 'bold', ml: 1 }}
                         />
                       )}
                     </ListItemButton>
@@ -426,9 +469,6 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ toggleTheme, currentMo
         <Box sx={{ p: 2, textAlign: 'center', bgcolor: 'rgba(0, 0, 0, 0.15)' }}>
           <Typography variant="caption" sx={{ color: '#64748B', display: 'block', fontWeight: 'bold' }}>
             Ghana Emergency Connect v1.0
-          </Typography>
-          <Typography variant="caption" sx={{ color: '#475569', fontSize: '0.68rem' }}>
-            Skilite Tech
           </Typography>
         </Box>
       ) : (
@@ -552,6 +592,20 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ toggleTheme, currentMo
       >
         <Outlet />
       </Box>
+
+      {/* 1-Hour Inactivity Session Warning Dialog */}
+      <Dialog open={showWarning} onClose={handleStaySignedIn} maxWidth="xs" fullWidth>
+        <DialogTitle fontWeight="bold">Session Expiring Soon</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">
+            Your administrative session will expire shortly due to inactivity. Would you like to stay signed in?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleSignOut} color="error">Sign Out</Button>
+          <Button onClick={handleStaySignedIn} variant="contained" color="primary">Stay Signed In</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

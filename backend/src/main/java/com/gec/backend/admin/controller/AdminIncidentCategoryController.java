@@ -3,6 +3,7 @@ package com.gec.backend.admin.controller;
 import com.gec.backend.report.dto.CreateCategoryRequest;
 import com.gec.backend.report.dto.IncidentCategoryResponse;
 import com.gec.backend.report.dto.UpdateCategoryRequest;
+import com.gec.backend.report.entity.TrackingPolicy;
 import com.gec.backend.report.service.IncidentCategoryService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -24,13 +25,13 @@ public class AdminIncidentCategoryController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAuthority('INCIDENT_CATEGORY_READ')")
+    @PreAuthorize("hasAuthority('INCIDENT_CATEGORY_READ') or hasAuthority('REPORT_READ')")
     public ResponseEntity<List<IncidentCategoryResponse>> getCategories() {
         return ResponseEntity.ok(categoryService.getAllCategories());
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('INCIDENT_CATEGORY_READ')")
+    @PreAuthorize("hasAuthority('INCIDENT_CATEGORY_READ') or hasAuthority('REPORT_READ')")
     public ResponseEntity<IncidentCategoryResponse> getCategoryById(@PathVariable UUID id) {
         return ResponseEntity.ok(categoryService.getCategoryById(id));
     }
@@ -48,6 +49,15 @@ public class AdminIncidentCategoryController {
         @Valid @RequestBody UpdateCategoryRequest request
     ) {
         return ResponseEntity.ok(categoryService.updateCategory(id, request));
+    }
+
+    @PutMapping("/{id}/tracking-policy")
+    @PreAuthorize("hasAuthority('INCIDENT_CATEGORY_MANAGE')")
+    public ResponseEntity<IncidentCategoryResponse> updateCategoryTrackingPolicy(
+        @PathVariable UUID id,
+        @RequestParam TrackingPolicy trackingPolicy
+    ) {
+        return ResponseEntity.ok(categoryService.updateCategoryTrackingPolicy(id, trackingPolicy));
     }
 
     @PatchMapping("/{id}/status")

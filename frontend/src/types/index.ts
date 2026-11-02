@@ -1,19 +1,14 @@
-export type UserRole =
-  | 'ROLE_SYSTEM_ADMIN'
-  | 'ROLE_AGENCY_ADMIN'
-  | 'ROLE_REGIONAL_ADMIN'
-  | 'ROLE_STATION_ADMIN'
-  | 'ROLE_DISPATCHER'
-  | 'ROLE_RESPONDER';
-
-export type AgencyType = 'FIRE' | 'POLICE' | 'AMBULANCE' | 'DISASTER_MANAGEMENT' | 'OTHER';
-
-export type StationLevel = 'NATIONAL_HQ' | 'RHQ' | 'DIVISIONAL_HQ' | 'DISTRICT_STATION' | 'SUB_STATION';
-
-export type StationContactType = 'DISPATCH_HOTLINE' | 'COMMAND_DESK' | 'ALT_HOTLINE' | 'SMS_WHATSAPP' | 'STATION_MOBILE' | 'WATCHROOM';
+export type StaffRole =
+  | 'SYSTEM_ADMIN'
+  | 'AGENCY_ADMIN'
+  | 'REGIONAL_ADMIN'
+  | 'STATION_ADMIN'
+  | 'CONTROL_ROOM_OPERATOR'
+  | 'REPORT_REVIEWER'
+  | 'AUDITOR'
+  | 'RESPONDER';
 
 export type ReportMode = 'SILENT' | 'GENERAL' | 'CALL';
-
 export type IncidentSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
 export type ReportStatus =
@@ -23,12 +18,35 @@ export type ReportStatus =
   | 'ASSIGNED'
   | 'ACKNOWLEDGED'
   | 'IN_PROGRESS'
-  | 'TRANSFERRED'
+  | 'PARTIALLY_COMPLETED'
   | 'RESOLVED'
   | 'CLOSED'
-  | 'REJECTED';
+  | 'REJECTED'
+  | 'TRANSFERRED';
 
-export interface User {
+export type AgencyType =
+  | 'POLICE'
+  | 'FIRE'
+  | 'AMBULANCE'
+  | 'DISASTER_MANAGEMENT'
+  | 'OTHER';
+
+export type StationLevel =
+  | 'NATIONAL_HQ'
+  | 'REGIONAL_COMMAND'
+  | 'DIVISIONAL_HQ'
+  | 'DISTRICT_STATION'
+  | 'LOCAL_POST';
+
+export type StationContactType =
+  | 'PRIMARY_DISPATCH'
+  | 'HOTLINE'
+  | 'STATION_COMMANDER'
+  | 'DUTY_OFFICER'
+  | 'ALT_DISPATCH'
+  | 'WATCHROOM';
+
+export interface AdminUser {
   id: string;
   email: string;
   firstName: string;
@@ -41,40 +59,29 @@ export interface User {
   stationName?: string;
   active: boolean;
   locked: boolean;
-  mustChangePassword: boolean;
+  mustChangePassword?: boolean;
+  totpEnabled?: boolean;
   lastLoginAt?: string;
   roles: string[];
-}
-
-export type AdminUser = User;
-
-export interface Page<T> {
-  content: T[];
-  totalElements: number;
-  totalPages: number;
-  size: number;
-  number: number;
-  empty: boolean;
+  permissions?: string[];
 }
 
 export interface LoginResponse {
   accessToken: string;
-  expiresInSeconds: number;
-  user: User;
-  roles?: string[];
-  permissions?: string[];
-  mustChangePassword?: boolean;
+  expiresInSeconds?: number;
+  user: AdminUser;
+  roles: string[];
+  permissions: string[];
   authenticationState?: string;
-  mfaChallenge?: any;
+  mfaChallenge?: string;
 }
 
 export interface AuditLog {
   id: string;
-  actorId: string;
+  actorUserId?: string;
   action: string;
-  targetType: string;
   entityType?: string;
-  targetId?: string;
+  entityId?: string;
   agencyId?: string;
   details?: string;
   description?: string;
@@ -82,6 +89,8 @@ export interface AuditLog {
   userAgent?: string;
   createdAt: string;
 }
+
+export interface AuditLogItem extends AuditLog {}
 
 export interface RegionRef {
   id: string;
@@ -118,11 +127,10 @@ export interface Station {
   regionId?: string;
   districtId?: string;
   locality?: string;
-  latitude: number;
-  longitude: number;
+  latitude?: number;
+  longitude?: number;
   locationAccuracyMeters?: number;
-  active: boolean;
-  verified: boolean;
+  verified?: boolean;
 }
 
 export interface StationContact {
@@ -206,6 +214,7 @@ export interface AdminReportSummary {
   targetAgencyTypes: AgencyType[];
   acknowledgementSlaState?: string;
   responseStartSlaState?: string;
+  unread?: boolean;
 }
 
 export interface AdminReportDetails {
@@ -231,11 +240,22 @@ export interface AdminReportDetails {
   createdAt: string;
   updatedAt: string;
   targetAgencyTypes: AgencyType[];
-  statusHistory: Array<{
+  statusHistory?: {
     status: ReportStatus;
     note?: string;
     timestamp: string;
-  }>;
-  attachments: ReportAttachment[];
-  agencyAssignments: AgencyAssignment[];
+  }[];
+  attachments?: ReportAttachment[];
+  agencyAssignments?: AgencyAssignment[];
+  reporterPublicReference?: string;
+  reporterPhone?: string;
+  reporterName?: string;
+}
+
+export interface Page<T> {
+  content: T[];
+  totalElements: number;
+  totalPages: number;
+  size: number;
+  number: number;
 }

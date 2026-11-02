@@ -30,6 +30,7 @@ class AdminReportWorkflowServiceTest {
     private final ReportAssignmentRepository assignmentRepository = Mockito.mock(ReportAssignmentRepository.class);
     private final ReportStatusHistoryRepository historyRepository = Mockito.mock(ReportStatusHistoryRepository.class);
     private final ReportAttachmentRepository attachmentRepository = Mockito.mock(ReportAttachmentRepository.class);
+    private final StaffIncidentReadStateRepository readStateRepository = Mockito.mock(StaffIncidentReadStateRepository.class);
     private final AgencyRepository agencyRepository = Mockito.mock(AgencyRepository.class);
     private final StationRepository stationRepository = Mockito.mock(StationRepository.class);
     private final PublicNotificationService publicNotificationService = Mockito.mock(PublicNotificationService.class);
@@ -37,7 +38,7 @@ class AdminReportWorkflowServiceTest {
     private final AuditService auditService = Mockito.mock(AuditService.class);
 
     private final AdminReportWorkflowService workflowService = new AdminReportWorkflowService(
-        reportRepository, categoryRepository, assignmentRepository, historyRepository, attachmentRepository, agencyRepository, stationRepository, publicNotificationService, scopeService, auditService
+        reportRepository, categoryRepository, assignmentRepository, historyRepository, attachmentRepository, readStateRepository, agencyRepository, stationRepository, publicNotificationService, scopeService, auditService
     );
 
     private final UUID reportId = UUID.randomUUID();

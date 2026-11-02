@@ -25,9 +25,38 @@ export interface ApproveRequestResponse {
   temporaryPassword: string;
 }
 
+export interface CentralizedRequestItem {
+  id: string;
+  requestRef: string;
+  requestType: string;
+  requestedByName: string;
+  targetUserName: string;
+  role: string;
+  agencyName: string;
+  currentEmail: string;
+  requestedEmail?: string;
+  reason: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'COMPLETED';
+  requestedAt: string;
+}
+
+export interface CentralizedRequestSummary {
+  allRequests: CentralizedRequestItem[];
+  agencyAccessRequests: AdminAccessRequest[];
+  emailChangeRequests: any[];
+  totalPendingCount: number;
+  agencyAccessPendingCount: number;
+  emailChangePendingCount: number;
+}
+
 export const adminRequestApi = {
   getRequests: async (): Promise<AdminAccessRequest[]> => {
     const res = await apiClient.get<AdminAccessRequest[]>('/api/v1/admin/admin-access-requests');
+    return res.data;
+  },
+
+  getCentralizedRequests: async (): Promise<CentralizedRequestSummary> => {
+    const res = await apiClient.get<CentralizedRequestSummary>('/api/v1/admin/admin-access-requests/centralized-summary');
     return res.data;
   },
 

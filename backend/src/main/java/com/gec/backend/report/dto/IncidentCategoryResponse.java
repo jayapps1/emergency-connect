@@ -2,6 +2,7 @@ package com.gec.backend.report.dto;
 
 import com.gec.backend.agency.entity.AgencyType;
 import com.gec.backend.report.entity.IncidentSeverity;
+import com.gec.backend.report.entity.TrackingPolicy;
 import java.util.Set;
 import java.util.UUID;
 
@@ -14,7 +15,24 @@ public record IncidentCategoryResponse(
     boolean supportsSilent,
     boolean supportsGeneral,
     boolean supportsCall,
+    TrackingPolicy trackingPolicy,
     int displayOrder,
     boolean active,
     Set<AgencyType> defaultAgencyTypes
-) {}
+) {
+    public IncidentCategoryResponse(
+        UUID id,
+        String code,
+        String name,
+        String description,
+        IncidentSeverity defaultSeverity,
+        boolean supportsSilent,
+        boolean supportsGeneral,
+        boolean supportsCall,
+        int displayOrder,
+        boolean active,
+        Set<AgencyType> defaultAgencyTypes
+    ) {
+        this(id, code, name, description, defaultSeverity, supportsSilent, supportsGeneral, supportsCall, TrackingPolicy.INCIDENT_LOCATION, displayOrder, active, defaultAgencyTypes);
+    }
+}

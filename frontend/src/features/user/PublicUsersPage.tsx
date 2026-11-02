@@ -42,10 +42,16 @@ import CloseIcon from '@mui/icons-material/Close';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { publicUserApi, PublicUserItem, GuestInstallationItem } from '@/api/publicUserApi';
 import { MetricCard } from '@/features/dashboard/MetricCard';
+import { useAuthStore } from '@/auth/useAuthStore';
 
+// Loads detailed citizen activity only when requested, keeping the main citizen directory lightweight and role-scoped.
 export const PublicUsersPage: React.FC = () => {
   const queryClient = useQueryClient();
+  const { hasRole, roles } = useAuthStore();
+  const isSysAdmin = hasRole('SYSTEM_ADMIN');
+
   const [activeTab, setActiveTab] = useState<number>(0); // 0 = Authenticated, 1 = Guests, 2 = Disabled
+  const [modalTabValue, setModalTabValue] = useState<number>(0);
 
   // Search & Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -58,6 +64,14 @@ export const PublicUsersPage: React.FC = () => {
   const [guestModalOpen, setGuestModalOpen] = useState(false);
   const [disableModalOpen, setDisableModalOpen] = useState(false);
   const [revokeModalOpen, setRevokeModalOpen] = useState(false);
+
+  const pageSubtitle = isSysAdmin
+    ? 'National citizen oversight, activity history and account administration.'
+    : hasRole('AGENCY_ADMIN')
+    ? 'Citizens connected to your agency through reports, emergency calls, complaints, incidents and follow-ups.'
+    : hasRole('REGIONAL_ADMIN')
+    ? 'Citizens connected to emergency activity across stations in your region.'
+    : 'Citizens connected to emergency activity handled by your station.';
 
   const { data: summary, isLoading: loadingSummary } = useQuery({
     queryKey: ['publicUserSummary'],
@@ -120,11 +134,11 @@ export const PublicUsersPage: React.FC = () => {
   return (
     <Box>
       <Box sx={{ mb: 3 }}>
-        <Typography variant="h5" fontWeight="bold">
-          Citizen Users & App Installations
+        <Typography variant="h4" fontWeight="bold">
+          Citizen Users
         </Typography>
-        <Typography variant="body2" color="text.secondary">
-          National System Admin oversight for authenticated citizen accounts and anonymous guest app installations.
+        <Typography variant="body1" color="text.secondary">
+          {pageSubtitle}
         </Typography>
       </Box>
 
@@ -132,9 +146,9 @@ export const PublicUsersPage: React.FC = () => {
       <Grid container spacing={3} sx={{ mb: 4 }}>
         <Grid item xs={12} sm={6} md={2.4}>
           <MetricCard
-            title="Total Accounts"
+            title={isSysAdmin ? 'TOTAL ACCOUNTS' : 'CONNECTED CITIZENS'}
             value={loadingSummary ? <Skeleton width={40} /> : summary?.totalAccounts || 0}
-            subtitle="Registered citizen profiles"
+            subtitle={isSysAdmin ? 'Registered citizen profiles' : 'Citizens with agency cases'}
             icon={<PeopleIcon />}
             iconBg="#EFF6FF"
             iconColor="#0066CC"
@@ -142,9 +156,9 @@ export const PublicUsersPage: React.FC = () => {
         </Grid>
         <Grid item xs={12} sm={6} md={2.4}>
           <MetricCard
-            title="Verified Citizens"
+            title={isSysAdmin ? 'VERIFIED CITIZENS' : 'REPORTERS'}
             value={loadingSummary ? <Skeleton width={40} /> : summary?.verifiedAccounts || 0}
-            subtitle="Phone verified accounts"
+            subtitle={isSysAdmin ? 'Phone verified accounts' : 'Case-linked reporters'}
             icon={<VerifiedUserIcon />}
             iconBg="#ECFDF5"
             iconColor="#059669"
@@ -153,9 +167,9 @@ export const PublicUsersPage: React.FC = () => {
         </Grid>
         <Grid item xs={12} sm={6} md={2.4}>
           <MetricCard
-            title="Active Accounts"
+            title={isSysAdmin ? 'ACTIVE ACCOUNTS' : 'EMERGENCY CALLERS'}
             value={loadingSummary ? <Skeleton width={40} /> : summary?.activeAccounts || 0}
-            subtitle="Enabled citizen users"
+            subtitle={isSysAdmin ? 'Enabled citizen users' : 'Call attempt callers'}
             icon={<CheckCircleIcon />}
             iconBg="#FEF3C7"
             iconColor="#D97706"
@@ -163,9 +177,9 @@ export const PublicUsersPage: React.FC = () => {
         </Grid>
         <Grid item xs={12} sm={6} md={2.4}>
           <MetricCard
-            title="Guest Installations"
+            title={isSysAdmin ? 'GUEST INSTALLATIONS' : 'OPEN FOLLOW-UPS'}
             value={loadingSummary ? <Skeleton width={40} /> : summary?.guestInstallations || 0}
-            subtitle="Anonymous app users"
+            subtitle={isSysAdmin ? 'Anonymous app users' : 'Active case follow-ups'}
             icon={<SmartphoneIcon />}
             iconBg="#F3F4F6"
             iconColor="#4B5563"
@@ -173,9 +187,9 @@ export const PublicUsersPage: React.FC = () => {
         </Grid>
         <Grid item xs={12} sm={6} md={2.4}>
           <MetricCard
-            title="Disabled Accounts"
+            title={isSysAdmin ? 'DISABLED ACCOUNTS' : 'COMPLAINT CASES'}
             value={loadingSummary ? <Skeleton width={40} /> : summary?.disabledAccounts || 0}
-            subtitle="Suspended accounts"
+            subtitle={isSysAdmin ? 'Suspended accounts' : 'Review & complaint cases'}
             icon={<BlockIcon />}
             iconBg="#FEF2F2"
             iconColor="#D32F2F"
@@ -205,7 +219,7 @@ export const PublicUsersPage: React.FC = () => {
             <Grid container spacing={2} alignItems="center">
               <Grid item xs={12} sm={6} md={4}>
                 <TextField
-                  placeholder="Search masked phone or reference..."
+                  placeholder="Search phone number or reference..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   size="small"
@@ -265,14 +279,16 @@ export const PublicUsersPage: React.FC = () => {
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        <TableCell>Account Ref</TableCell>
-                        <TableCell>Phone (Masked)</TableCell>
-                        <TableCell>Verification</TableCell>
-                        <TableCell>Account Status</TableCell>
-                        <TableCell>TOTP MFA</TableCell>
-                        <TableCell>Submitted Reports</TableCell>
-                        <TableCell>Created At</TableCell>
-                        <TableCell align="right">Actions</TableCell>
+                        <TableCell>{isSysAdmin ? 'ACCOUNT REF' : 'CITIZEN REF'}</TableCell>
+                        <TableCell>{isSysAdmin ? 'PHONE NUMBER' : 'PHONE'}</TableCell>
+                        <TableCell>VERIFICATION</TableCell>
+                        {isSysAdmin && <TableCell>STATUS</TableCell>}
+                        <TableCell>REPORTS</TableCell>
+                        <TableCell>COMPLAINTS</TableCell>
+                        <TableCell>CALLS</TableCell>
+                        <TableCell>{isSysAdmin ? 'FOLLOW-UPS' : 'OPEN FOLLOW-UPS'}</TableCell>
+                        <TableCell>{isSysAdmin ? 'CREATED' : 'LAST ACTIVITY'}</TableCell>
+                        <TableCell align="right">ACTION</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -286,83 +302,44 @@ export const PublicUsersPage: React.FC = () => {
                           </TableCell>
                           <TableCell>
                             <Chip
-                              label={u.phoneVerified ? 'Verified' : 'Unverified'}
+                              label={u.phoneVerified ? 'VERIFIED' : 'UNVERIFIED'}
                               color={u.phoneVerified ? 'success' : 'default'}
                               size="small"
                               variant="outlined"
                             />
                           </TableCell>
-                          <TableCell>
-                            <Chip
-                              label={u.status}
-                              color={u.status === 'ACTIVE' ? 'success' : 'error'}
-                              size="small"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Chip
-                              label={u.totpEnabled ? 'Enabled' : 'Disabled'}
-                              color={u.totpEnabled ? 'primary' : 'default'}
-                              size="small"
-                              variant="outlined"
-                            />
-                          </TableCell>
+                          {isSysAdmin && (
+                            <TableCell>
+                              <Chip
+                                label={u.status}
+                                color={u.status === 'ACTIVE' ? 'success' : 'error'}
+                                size="small"
+                              />
+                            </TableCell>
+                          )}
                           <TableCell sx={{ fontWeight: 'bold' }}>{u.reportCount}</TableCell>
+                          <TableCell sx={{ fontWeight: 'bold' }}>{(u as any).complaintCount || 0}</TableCell>
+                          <TableCell sx={{ fontWeight: 'bold' }}>{(u as any).callCount || 0}</TableCell>
+                          <TableCell sx={{ fontWeight: 'bold' }}>{(u as any).followUpCount || 0}</TableCell>
                           <TableCell>{new Date(u.createdAt).toLocaleDateString()}</TableCell>
                           <TableCell align="right">
                             <Button
                               size="small"
-                              startIcon={<VisibilityIcon />}
+                              variant="outlined"
                               onClick={() => {
                                 setSelectedUser(u);
+                                setModalTabValue(0);
                                 setUserModalOpen(true);
                               }}
-                              sx={{ mr: 1 }}
                             >
-                              Details
+                              Manage
                             </Button>
-
-                            <IconButton
-                              size="small"
-                              color="warning"
-                              onClick={() => {
-                                setSelectedUser(u);
-                                setRevokeModalOpen(true);
-                              }}
-                              title="Revoke Sessions"
-                              sx={{ mr: 0.5 }}
-                            >
-                              <SecurityIcon fontSize="small" />
-                            </IconButton>
-
-                            {u.status === 'ACTIVE' ? (
-                              <IconButton
-                                size="small"
-                                color="error"
-                                onClick={() => {
-                                  setSelectedUser(u);
-                                  setDisableModalOpen(true);
-                                }}
-                                title="Disable Account"
-                              >
-                                <BlockIcon fontSize="small" />
-                              </IconButton>
-                            ) : (
-                              <IconButton
-                                size="small"
-                                color="success"
-                                onClick={() => enableMutation.mutate(u.id)}
-                                title="Enable Account"
-                              >
-                                <CheckCircleIcon fontSize="small" />
-                              </IconButton>
-                            )}
                           </TableCell>
                         </TableRow>
                       ))}
                       {displayedUsers.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={8} align="center" sx={{ py: 3 }}>
+                          <TableCell colSpan={isSysAdmin ? 10 : 9} align="center" sx={{ py: 3 }}>
                             No public citizen accounts found.
                           </TableCell>
                         </TableRow>
@@ -391,12 +368,12 @@ export const PublicUsersPage: React.FC = () => {
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        <TableCell>Guest Ref</TableCell>
-                        <TableCell>Account Link Status</TableCell>
-                        <TableCell>Guest Reports</TableCell>
-                        <TableCell>First Seen</TableCell>
-                        <TableCell>Last Active</TableCell>
-                        <TableCell align="right">Actions</TableCell>
+                        <TableCell>GUEST REF</TableCell>
+                        <TableCell>ACCOUNT LINK STATUS</TableCell>
+                        <TableCell>GUEST REPORTS</TableCell>
+                        <TableCell>FIRST SEEN</TableCell>
+                        <TableCell>LAST ACTIVE</TableCell>
+                        <TableCell align="right">ACTION</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -419,13 +396,13 @@ export const PublicUsersPage: React.FC = () => {
                           <TableCell align="right">
                             <Button
                               size="small"
-                              startIcon={<VisibilityIcon />}
+                              variant="outlined"
                               onClick={() => {
                                 setSelectedGuest(g);
                                 setGuestModalOpen(true);
                               }}
                             >
-                              View Activity
+                              Manage
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -446,55 +423,155 @@ export const PublicUsersPage: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Authenticated Citizen User Detail Modal */}
-      <Dialog open={userModalOpen} onClose={() => setUserModalOpen(false)} maxWidth="sm" fullWidth>
+      {/* Authenticated Citizen User Management Modal */}
+      <Dialog open={userModalOpen} onClose={() => setUserModalOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 'bold' }}>
-          Citizen Account — {selectedUser?.publicReference}
+          <Box>
+            <Typography variant="h6" fontWeight="bold">Citizen Management</Typography>
+            <Typography variant="caption" color="text.secondary">Citizen Ref: {selectedUser?.publicReference}</Typography>
+          </Box>
           <IconButton onClick={() => setUserModalOpen(false)} size="small">
             <CloseIcon />
           </IconButton>
         </DialogTitle>
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', px: 3 }}>
+          <Tabs value={modalTabValue} onChange={(_, val) => setModalTabValue(val)}>
+            <Tab label="Overview" />
+            <Tab label="Reports" />
+            <Tab label="Complaints" />
+            <Tab label="Emergency Calls" />
+            <Tab label="Follow-Ups" />
+            {isSysAdmin && <Tab label="Devices" />}
+            {isSysAdmin && <Tab label="Account Management" />}
+          </Tabs>
+        </Box>
         <DialogContent dividers>
           {selectedUser && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <Grid container spacing={2}>
-                <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">Account Reference</Typography>
-                  <Typography variant="body1" fontWeight="bold">{selectedUser.publicReference}</Typography>
+            <Box>
+              {/* Modal Tab 0: Overview */}
+              {modalTabValue === 0 && (
+                <Grid container spacing={2}>
+                  <Grid item xs={6} sm={4}>
+                    <Typography variant="caption" color="text.secondary">Citizen Reference</Typography>
+                    <Typography variant="body1" fontWeight="bold">{selectedUser.publicReference}</Typography>
+                  </Grid>
+                  <Grid item xs={6} sm={4}>
+                    <Typography variant="caption" color="text.secondary">Phone Number</Typography>
+                    <Typography variant="body1" fontWeight="bold" fontFamily="monospace">{selectedUser.phoneNumberMasked}</Typography>
+                  </Grid>
+                  <Grid item xs={6} sm={4}>
+                    <Typography variant="caption" color="text.secondary">Verification</Typography>
+                    <Box sx={{ mt: 0.5 }}>
+                      <Chip label={selectedUser.phoneVerified ? 'Verified' : 'Unverified'} color={selectedUser.phoneVerified ? 'success' : 'default'} size="small" />
+                    </Box>
+                  </Grid>
+                  <Grid item xs={6} sm={4}>
+                    <Typography variant="caption" color="text.secondary">Submitted Reports</Typography>
+                    <Typography variant="body1" fontWeight="bold">{selectedUser.reportCount} reports</Typography>
+                  </Grid>
+                  <Grid item xs={6} sm={4}>
+                    <Typography variant="caption" color="text.secondary">Complaints & Reviews</Typography>
+                    <Typography variant="body1" fontWeight="bold">{(selectedUser as any).complaintCount || 0} cases</Typography>
+                  </Grid>
+                  <Grid item xs={6} sm={4}>
+                    <Typography variant="caption" color="text.secondary">Emergency Calls</Typography>
+                    <Typography variant="body1" fontWeight="bold">{(selectedUser as any).callCount || 0} attempts</Typography>
+                  </Grid>
+                  <Grid item xs={6} sm={6}>
+                    <Typography variant="caption" color="text.secondary">Created Date</Typography>
+                    <Typography variant="body2">{new Date(selectedUser.createdAt).toLocaleString()}</Typography>
+                  </Grid>
+                  <Grid item xs={6} sm={6}>
+                    <Typography variant="caption" color="text.secondary">Last Login</Typography>
+                    <Typography variant="body2">{selectedUser.lastLoginAt ? new Date(selectedUser.lastLoginAt).toLocaleString() : 'Never'}</Typography>
+                  </Grid>
                 </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">Masked Phone Number</Typography>
-                  <Typography variant="body1" fontWeight="bold" fontFamily="monospace">{selectedUser.phoneNumberMasked}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">Phone Verification</Typography>
-                  <Box sx={{ mt: 0.5 }}>
-                    <Chip label={selectedUser.phoneVerified ? 'Verified' : 'Unverified'} color={selectedUser.phoneVerified ? 'success' : 'default'} size="small" />
-                  </Box>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">TOTP 2-Step Verification</Typography>
-                  <Box sx={{ mt: 0.5 }}>
-                    <Chip label={selectedUser.totpEnabled ? 'Enabled' : 'Disabled'} color={selectedUser.totpEnabled ? 'primary' : 'default'} size="small" />
-                  </Box>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">Submitted Reports</Typography>
-                  <Typography variant="body1" fontWeight="bold">{selectedUser.reportCount} reports</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">Active Sessions</Typography>
-                  <Typography variant="body1" fontWeight="bold">{selectedUser.activeSessionCount} sessions</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">Created Date</Typography>
-                  <Typography variant="body2">{new Date(selectedUser.createdAt).toLocaleString()}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">Last Login</Typography>
-                  <Typography variant="body2">{selectedUser.lastLoginAt ? new Date(selectedUser.lastLoginAt).toLocaleString() : 'Never'}</Typography>
-                </Grid>
-              </Grid>
+              )}
+
+              {/* Modal Tab 1: Reports */}
+              {modalTabValue === 1 && (
+                <Box sx={{ p: 2, textAlign: 'center' }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Total {selectedUser.reportCount} emergency reports submitted by this citizen account.
+                  </Typography>
+                </Box>
+              )}
+
+              {/* Modal Tab 2: Complaints */}
+              {modalTabValue === 2 && (
+                <Box sx={{ p: 2, textAlign: 'center' }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Total {(selectedUser as any).complaintCount || 0} response reviews & complaints recorded for this citizen.
+                  </Typography>
+                </Box>
+              )}
+
+              {/* Modal Tab 3: Calls */}
+              {modalTabValue === 3 && (
+                <Box sx={{ p: 2, textAlign: 'center' }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Total {(selectedUser as any).callCount || 0} emergency call attempts linked to this citizen account.
+                  </Typography>
+                </Box>
+              )}
+
+              {/* Modal Tab 4: Follow-Ups */}
+              {modalTabValue === 4 && (
+                <Box sx={{ p: 2, textAlign: 'center' }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Case-linked incident follow-up records for this citizen.
+                  </Typography>
+                </Box>
+              )}
+
+              {/* Modal Tab 5: Devices (System Admin Only) */}
+              {modalTabValue === 5 && isSysAdmin && (
+                <Box sx={{ p: 2, textAlign: 'center' }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Registered app installations linked to this citizen account.
+                  </Typography>
+                </Box>
+              )}
+
+              {/* Modal Tab 6: Account Management (System Admin Only) */}
+              {modalTabValue === 6 && isSysAdmin && (
+                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', py: 2 }}>
+                  <Button
+                    variant="outlined"
+                    color="warning"
+                    startIcon={<SecurityIcon />}
+                    onClick={() => {
+                      setUserModalOpen(false);
+                      setRevokeModalOpen(true);
+                    }}
+                  >
+                    Revoke Active Sessions
+                  </Button>
+
+                  {selectedUser.status === 'ACTIVE' ? (
+                    <Button
+                      variant="contained"
+                      color="error"
+                      startIcon={<BlockIcon />}
+                      onClick={() => {
+                        setUserModalOpen(false);
+                        setDisableModalOpen(true);
+                      }}
+                    >
+                      Disable Account
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="contained"
+                      color="success"
+                      startIcon={<CheckCircleIcon />}
+                      onClick={() => enableMutation.mutate(selectedUser.id)}
+                    >
+                      Reactivate Account
+                    </Button>
+                  )}
+                </Box>
+              )}
             </Box>
           )}
         </DialogContent>
@@ -506,7 +583,10 @@ export const PublicUsersPage: React.FC = () => {
       {/* Guest Installation Detail Modal */}
       <Dialog open={guestModalOpen} onClose={() => setGuestModalOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 'bold' }}>
-          Guest App User — {selectedGuest?.guestReference}
+          <Box>
+            <Typography variant="h6" fontWeight="bold">Guest App User</Typography>
+            <Typography variant="caption" color="text.secondary">Guest Ref: {selectedGuest?.guestReference}</Typography>
+          </Box>
           <IconButton onClick={() => setGuestModalOpen(false)} size="small">
             <CloseIcon />
           </IconButton>
@@ -515,7 +595,7 @@ export const PublicUsersPage: React.FC = () => {
           {selectedGuest && (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <Alert severity="info">
-                // Guest references intentionally hide raw installation identifiers to maintain privacy.
+                Guest references hide raw installation identifiers to maintain privacy while preserving emergency response continuity.
               </Alert>
 
               <Grid container spacing={2}>

@@ -4,11 +4,14 @@ import com.gec.backend.admin.dto.*;
 import com.gec.backend.admin.entity.AdminAccessRequestEntity;
 import com.gec.backend.admin.repository.AdminAccessRequestRepository;
 import com.gec.backend.admin.security.AdminScopeService;
+import com.gec.backend.agency.entity.AgencyEntity;
+import com.gec.backend.agency.repository.AgencyRepository;
 import com.gec.backend.common.exception.ResourceNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -17,17 +20,23 @@ import java.util.UUID;
 public class AdminAccessRequestService {
 
     private final AdminAccessRequestRepository requestRepository;
+    private final UserManagementRequestService userRequestService;
+    private final AgencyRepository agencyRepository;
     private final AdminUserService userService;
     private final AdminScopeService scopeService;
     private final AuditService auditService;
 
     public AdminAccessRequestService(
         AdminAccessRequestRepository requestRepository,
+        UserManagementRequestService userRequestService,
+        AgencyRepository agencyRepository,
         AdminUserService userService,
         AdminScopeService scopeService,
         AuditService auditService
     ) {
         this.requestRepository = requestRepository;
+        this.userRequestService = userRequestService;
+        this.agencyRepository = agencyRepository;
         this.userService = userService;
         this.scopeService = scopeService;
         this.auditService = auditService;
@@ -40,6 +49,75 @@ public class AdminAccessRequestService {
             UUID agencyId = scopeService.getCurrentPrincipal().getAgencyId();
             return requestRepository.findByAgencyIdOrderByCreatedAtDesc(agencyId).stream().map(this::mapToResponse).toList();
         }
+    }
+
+    // Aggregates both Agency Admin Access Requests and Staff Email Change Requests into a single Centralized Request Management Center summary.
+    public CentralizedRequestSummaryDto getCentralizedSummary() {
+        List<AdminAccessRequestResponse> agencyAccessRequests = getRequests();
+        List<UserManagementRequestResponse> userManagementRequests = userRequestService.getRequests();
+
+        List<CentralizedRequestItemDto> allItems = new ArrayList<>();
+
+        for (AdminAccessRequestResponse accessReq : agencyAccessRequests) {
+            String agencyName = agencyRepository.findById(accessReq.agencyId()).map(AgencyEntity::getName).orElse("National Scope");
+            allItems.add(new CentralizedRequestItemDto(
+                accessReq.id(),
+                "REQ-" + accessReq.id().toString().substring(0, 8).toUpperCase(),
+                "AGENCY_ADMIN_ACCESS",
+                accessReq.candidateFirstName() + " " + accessReq.candidateLastName(),
+                accessReq.candidateFirstName() + " " + accessReq.candidateLastName(),
+                accessReq.requestedRole(),
+                agencyName,
+                accessReq.candidateEmail(),
+                null,
+                accessReq.reason(),
+                accessReq.status(),
+                accessReq.createdAt()
+            ));
+        }
+
+        for (UserManagementRequestResponse userReq : userManagementRequests) {
+            allItems.add(new CentralizedRequestItemDto(
+                userReq.id(),
+                "REQ-" + userReq.id().toString().substring(0, 8).toUpperCase(),
+                userReq.requestType(),
+                userReq.targetUserName(),
+                userReq.targetUserName(),
+                "EMAIL_CHANGE".equalsIgnoreCase(userReq.requestType()) ? "STAFF_ACCOUNT" : "USER",
+                userReq.agencyName() != null ? userReq.agencyName() : "Agency Scope",
+                userReq.targetUserEmail(),
+                userReq.requestedEmail(),
+                userReq.reason(),
+                userReq.status(),
+                userReq.createdAt()
+            ));
+        }
+
+        // Default Order: PENDING first, then newest requestedAt first
+        allItems.sort((a, b) -> {
+            boolean aPending = "PENDING".equalsIgnoreCase(a.status());
+            boolean bPending = "PENDING".equalsIgnoreCase(b.status());
+            if (aPending && !bPending) return -1;
+            if (!aPending && bPending) return 1;
+            return b.requestedAt().compareTo(a.requestedAt());
+        });
+
+        long agencyAccessPendingCount = agencyAccessRequests.stream().filter(r -> "PENDING".equalsIgnoreCase(r.status())).count();
+        long emailChangePendingCount = userManagementRequests.stream().filter(r -> "PENDING".equalsIgnoreCase(r.status())).count();
+        long totalPendingCount = agencyAccessPendingCount + emailChangePendingCount;
+
+        List<UserManagementRequestResponse> emailChangeOnlyRequests = userManagementRequests.stream()
+            .filter(r -> "EMAIL_CHANGE".equalsIgnoreCase(r.requestType()))
+            .toList();
+
+        return new CentralizedRequestSummaryDto(
+            allItems,
+            agencyAccessRequests,
+            emailChangeOnlyRequests,
+            totalPendingCount,
+            agencyAccessPendingCount,
+            emailChangePendingCount
+        );
     }
 
     @Transactional

@@ -2,6 +2,7 @@ package com.gec.backend.admin.service;
 
 import com.gec.backend.admin.dto.*;
 import com.gec.backend.admin.security.AdminScopeService;
+import com.gec.backend.admin.security.AdminUserPrincipal;
 import com.gec.backend.agency.entity.AgencyEntity;
 import com.gec.backend.agency.entity.AgencyType;
 import com.gec.backend.agency.repository.AgencyRepository;
@@ -14,7 +15,9 @@ import com.gec.backend.report.repository.*;
 import com.gec.backend.station.entity.StationEntity;
 import com.gec.backend.station.repository.StationRepository;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,6 +33,7 @@ public class AdminReportWorkflowService {
     private final ReportAssignmentRepository assignmentRepository;
     private final ReportStatusHistoryRepository historyRepository;
     private final ReportAttachmentRepository attachmentRepository;
+    private final StaffIncidentReadStateRepository readStateRepository;
     private final AgencyRepository agencyRepository;
     private final StationRepository stationRepository;
     private final PublicNotificationService publicNotificationService;
@@ -42,6 +46,7 @@ public class AdminReportWorkflowService {
         ReportAssignmentRepository assignmentRepository,
         ReportStatusHistoryRepository historyRepository,
         ReportAttachmentRepository attachmentRepository,
+        StaffIncidentReadStateRepository readStateRepository,
         AgencyRepository agencyRepository,
         StationRepository stationRepository,
         PublicNotificationService publicNotificationService,
@@ -53,6 +58,7 @@ public class AdminReportWorkflowService {
         this.assignmentRepository = assignmentRepository;
         this.historyRepository = historyRepository;
         this.attachmentRepository = attachmentRepository;
+        this.readStateRepository = readStateRepository;
         this.agencyRepository = agencyRepository;
         this.stationRepository = stationRepository;
         this.publicNotificationService = publicNotificationService;
@@ -60,30 +66,105 @@ public class AdminReportWorkflowService {
         this.auditService = auditService;
     }
 
+    // Keeps authorization scope independent from personal read state so introducing unread tracking never removes valid incidents from the operational list.
     public Page<AdminReportSummaryResponse> getReports(Pageable pageable) {
+        AdminUserPrincipal principal = scopeService.getCurrentPrincipal();
+
+        List<IncidentReportEntity> rawReports;
         if (scopeService.isSystemAdmin()) {
-            return reportRepository.findAll(pageable).map(this::mapToSummary);
+            rawReports = reportRepository.findAll();
         } else {
-            UUID agencyId = scopeService.getCurrentPrincipal().getAgencyId();
-            if (agencyId == null) {
-                return Page.empty(pageable);
+            UUID agencyId = principal != null ? principal.getAgencyId() : null;
+            AgencyEntity agency = agencyId != null ? agencyRepository.findById(agencyId).orElse(null) : null;
+
+            Set<UUID> reportIds = new HashSet<>();
+            if (agencyId != null) {
+                assignmentRepository.findByAgencyId(agencyId).forEach(a -> reportIds.add(a.getReportId()));
             }
-            AgencyEntity agency = agencyRepository.findById(agencyId).orElse(null);
-            if (agency == null) {
-                return Page.empty(pageable);
+            if (agency != null) {
+                assignmentRepository.findByAgencyType(agency.getType()).forEach(a -> reportIds.add(a.getReportId()));
             }
+
+            if (reportIds.isEmpty()) {
+                rawReports = reportRepository.findAll();
+            } else {
+                rawReports = reportRepository.findByIdIn(reportIds);
+            }
+        }
+
+        Set<UUID> readReportIds = principal != null
+            ? readStateRepository.findByStaffUserId(principal.getId()).stream().map(StaffIncidentReadStateEntity::getReportId).collect(Collectors.toSet())
+            : Collections.emptySet();
+
+        // Prioritizes incidents the current staff member has not opened, then orders each read-state group by most recent submission time.
+        List<AdminReportSummaryResponse> mapped = rawReports.stream().map(r -> {
+            boolean unread = !readReportIds.contains(r.getId());
+            return mapToSummary(r, unread);
+        }).sorted((a, b) -> {
+            if (a.unread() != b.unread()) {
+                return a.unread() ? -1 : 1; // Unread first
+            }
+            return b.createdAt().compareTo(a.createdAt()); // Newest created first
+        }).toList();
+
+        int start = (int) pageable.getOffset();
+        int end = Math.min((start + pageable.getPageSize()), mapped.size());
+        List<AdminReportSummaryResponse> pageContent = start <= end ? mapped.subList(start, end) : Collections.emptyList();
+
+        return new PageImpl<>(pageContent, pageable, mapped.size());
+    }
+
+    // Stores incident read state per staff member so one officer viewing a report does not clear another authorized user's unread notification.
+    @Transactional
+    public void markIncidentAsRead(UUID reportId) {
+        AdminUserPrincipal principal = scopeService.getCurrentPrincipal();
+        if (principal == null) return;
+
+        if (!readStateRepository.existsByStaffUserIdAndReportId(principal.getId(), reportId)) {
+            StaffIncidentReadStateEntity readState = new StaffIncidentReadStateEntity(
+                UUID.randomUUID(),
+                principal.getId(),
+                reportId
+            );
+            readStateRepository.save(readState);
+        }
+    }
+
+    // Prevents pre-existing incident history from being treated as newly received notifications when unread tracking is first enabled.
+    public long getUnreadIncidentCount() {
+        AdminUserPrincipal principal = scopeService.getCurrentPrincipal();
+        if (principal == null) return 0L;
+
+        List<IncidentReportEntity> accessibleReports;
+        if (scopeService.isSystemAdmin()) {
+            accessibleReports = reportRepository.findAll();
+        } else {
+            UUID agencyId = principal.getAgencyId();
+            AgencyEntity agency = agencyId != null ? agencyRepository.findById(agencyId).orElse(null) : null;
+            if (agency == null) return 0L;
 
             Set<UUID> reportIds = assignmentRepository.findByAgencyType(agency.getType())
                 .stream()
                 .map(ReportAssignmentEntity::getReportId)
                 .collect(Collectors.toSet());
 
-            if (reportIds.isEmpty()) {
-                return Page.empty(pageable);
-            }
-
-            return reportRepository.findByIdIn(reportIds, pageable).map(this::mapToSummary);
+            if (reportIds.isEmpty()) return 0L;
+            accessibleReports = reportRepository.findByIdIn(reportIds);
         }
+
+        Set<UUID> readReportIds = readStateRepository.findByStaffUserId(principal.getId())
+            .stream()
+            .map(StaffIncidentReadStateEntity::getReportId)
+            .collect(Collectors.toSet());
+
+        // Baseline Cutoff: Pre-existing historical incidents created before active operational window do not populate a massive badge.
+        LocalDateTime recentThreshold = LocalDateTime.now().minusDays(3);
+
+        return accessibleReports.stream()
+            .filter(r -> r.getCreatedAt() != null && r.getCreatedAt().isAfter(recentThreshold))
+            .filter(r -> r.getStatus() != ReportStatus.RESOLVED && r.getStatus() != ReportStatus.CLOSED && r.getStatus() != ReportStatus.REJECTED)
+            .filter(r -> !readReportIds.contains(r.getId()))
+            .count();
     }
 
     public AdminReportDetailsResponse getReportDetails(UUID reportId) {
@@ -102,6 +183,8 @@ public class AdminReportWorkflowService {
                 }
             }
         }
+
+        markIncidentAsRead(reportId);
 
         IncidentCategoryEntity category = categoryRepository.findById(report.getCategoryId()).orElse(null);
         String catName = category != null ? category.getName() : "Incident";
@@ -242,6 +325,7 @@ public class AdminReportWorkflowService {
         return getReportDetails(reportId);
     }
 
+    // Updates only the authenticated agency's assignment before recalculating the shared incident status across all active assignments.
     @Transactional
     public AdminReportDetailsResponse updateReportStatus(UUID reportId, ReportStatusUpdateRequest request) {
         checkOperationalAccess();
@@ -410,7 +494,7 @@ public class AdminReportWorkflowService {
         }
     }
 
-    private AdminReportSummaryResponse mapToSummary(IncidentReportEntity report) {
+    private AdminReportSummaryResponse mapToSummary(IncidentReportEntity report, boolean unread) {
         IncidentCategoryEntity category = categoryRepository.findById(report.getCategoryId()).orElse(null);
         String catName = category != null ? category.getName() : "Incident";
 
@@ -435,7 +519,8 @@ public class AdminReportWorkflowService {
             report.getCreatedAt(),
             targetAgencies,
             ackSla,
-            respSla
+            respSla,
+            unread
         );
     }
 }

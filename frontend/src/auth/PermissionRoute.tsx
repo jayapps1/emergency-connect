@@ -10,12 +10,16 @@ interface PermissionRouteProps {
 }
 
 /**
- * Route guard component restricting UI access based on required fine-grained permissions.
- * Displays a 403 Access Denied view if the authenticated principal lacks the specified permission.
+ * Distinguishes authorization loading from a genuine permission denial so
+ * valid users do not receive a temporary 403 during session restoration.
  */
 export const PermissionRoute: React.FC<PermissionRouteProps> = ({ permission, children }) => {
-  const { hasPermission } = useAuthStore();
+  const { hasPermission, isInitializing } = useAuthStore();
   const navigate = useNavigate();
+
+  if (isInitializing) {
+    return null; // AuthProvider holds the splash screen while permissions finish bootstrapping
+  }
 
   if (!hasPermission(permission)) {
     return (

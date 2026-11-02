@@ -11,4 +11,6 @@ public interface IncidentResponseReviewRepository extends JpaRepository<Incident
     Optional<IncidentResponseReviewEntity> findByAssignmentId(UUID assignmentId);
     List<IncidentResponseReviewEntity> findByReportId(UUID reportId);
     List<IncidentResponseReviewEntity> findByAgencyId(UUID agencyId);
+    long countByPublicUserId(UUID publicUserId);
+    List<IncidentResponseReviewEntity> findByPublicUserIdOrderByCreatedAtDesc(UUID publicUserId);
 }

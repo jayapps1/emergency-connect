@@ -16,4 +16,6 @@ public interface EmergencyCallAttemptRepository extends JpaRepository<EmergencyC
     List<EmergencyCallAttemptEntity> findByStationIdOrderByInitiatedAtDesc(UUID stationId);
     Page<EmergencyCallAttemptEntity> findByStationIdOrderByInitiatedAtDesc(UUID stationId, Pageable pageable);
     Page<EmergencyCallAttemptEntity> findAllByOrderByInitiatedAtDesc(Pageable pageable);
+    long countByPublicUserId(UUID publicUserId);
+    Page<EmergencyCallAttemptEntity> findByPublicUserIdOrderByInitiatedAtDesc(UUID publicUserId, Pageable pageable);
 }

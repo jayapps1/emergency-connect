@@ -5,6 +5,9 @@ import com.gec.backend.admin.dto.LoginResponse;
 import com.gec.backend.admin.entity.AdminUserEntity;
 import com.gec.backend.admin.repository.AdminRefreshTokenRepository;
 import com.gec.backend.admin.repository.AdminUserRepository;
+import com.gec.backend.admin.repository.StaffEmailHistoryRepository;
+import com.gec.backend.admin.repository.UserManagementRequestRepository;
+import com.gec.backend.admin.security.AdminScopeService;
 import com.gec.backend.admin.security.JwtTokenProvider;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -24,13 +27,16 @@ class AdminAuthServiceTest {
 
     private final AdminUserRepository userRepository = Mockito.mock(AdminUserRepository.class);
     private final AdminRefreshTokenRepository refreshTokenRepository = Mockito.mock(AdminRefreshTokenRepository.class);
+    private final UserManagementRequestRepository requestRepository = Mockito.mock(UserManagementRequestRepository.class);
+    private final StaffEmailHistoryRepository emailHistoryRepository = Mockito.mock(StaffEmailHistoryRepository.class);
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private final JwtTokenProvider tokenProvider = new JwtTokenProvider("secretKeyForTestingMustBeAtLeast32BytesLong!", 900000);
     private final MfaService mfaService = Mockito.mock(MfaService.class);
+    private final AdminScopeService scopeService = Mockito.mock(AdminScopeService.class);
     private final AuditService auditService = Mockito.mock(AuditService.class);
 
     private final AdminAuthService authService = new AdminAuthService(
-        userRepository, refreshTokenRepository, passwordEncoder, tokenProvider, mfaService, auditService
+        userRepository, refreshTokenRepository, requestRepository, emailHistoryRepository, passwordEncoder, tokenProvider, mfaService, scopeService, auditService
     );
 
     @Test

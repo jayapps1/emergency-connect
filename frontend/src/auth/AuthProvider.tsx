@@ -3,6 +3,10 @@ import { useAuthStore } from './useAuthStore';
 import { authApi } from '@/api/authApi';
 import { Box, CircularProgress, Typography } from '@mui/material';
 
+/**
+ * Restores the complete staff authorization context before protected routes
+ * evaluate role permissions after a browser refresh.
+ */
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isInitializing, setAuth, setInitializing, logout } = useAuthStore();
 
@@ -12,12 +16,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const data = await authApi.refresh();
         if (data.accessToken) {
           setAuth(data.accessToken, data.user, data.roles, data.permissions);
+          setInitializing(false);
+          return;
         }
-      } catch (e) {
+      } catch (_: any) {}
+
+      // Fallback: If refresh cookie was absent, verify stored access token with getMe()
+      const storedToken = localStorage.getItem('gec_access_token');
+      if (storedToken) {
+        try {
+          const res = await authApi.getMe();
+          // authApi.getMe() returns LoginResponse with accessToken, user, roles, and permissions
+          const loginResp = res as any;
+          if (loginResp.user) {
+            setAuth(storedToken, loginResp.user, loginResp.roles, loginResp.permissions);
+          } else {
+            setAuth(storedToken, res as any, (res as any).roles, []);
+          }
+          setInitializing(false);
+          return;
+        } catch (getMeErr: any) {
+          if (getMeErr.response?.status === 401) {
+            logout();
+          }
+        }
+      } else {
         logout();
-      } finally {
-        setInitializing(false);
       }
+
+      setInitializing(false);
     };
 
     initializeAuth();

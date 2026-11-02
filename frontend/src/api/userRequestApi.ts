@@ -2,9 +2,10 @@ import { apiClient } from './client';
 
 export interface UserManagementRequest {
   id: string;
-  requestType: 'DEACTIVATE' | 'TRANSFER' | 'REMOVE_ACCESS' | 'UPDATE_ASSIGNMENT';
+  requestType: 'DEACTIVATE' | 'TRANSFER' | 'REMOVE_ACCESS' | 'UPDATE_ASSIGNMENT' | 'EMAIL_CHANGE';
   targetUserId: string;
   targetUserEmail: string;
+  requestedEmail?: string;
   targetUserName: string;
   agencyId: string;
   agencyName?: string;

@@ -16,33 +16,344 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Service
 public class AdminAuthService {
 
+    public record EmailChangeEligibilityResult(
+        boolean canRequestEmailChange,
+        boolean hasPendingEmailChange,
+        String pendingRequestedEmail,
+        LocalDateTime nextEligibleAt,
+        String statusReason
+    ) {}
+
+    private static record VerificationTokenRecord(
+        String token,
+        UUID userId,
+        LocalDateTime expiresAt,
+        boolean used
+    ) {}
+
+    private final Map<String, VerificationTokenRecord> verificationTokenRegistry = new ConcurrentHashMap<>();
+
     private final AdminUserRepository userRepository;
     private final AdminRefreshTokenRepository refreshTokenRepository;
+    private final UserManagementRequestRepository requestRepository;
+    private final StaffEmailHistoryRepository emailHistoryRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider tokenProvider;
     private final MfaService mfaService;
+    private final AdminScopeService scopeService;
     private final AuditService auditService;
     private final SecureRandom secureRandom = new SecureRandom();
 
     public AdminAuthService(
         AdminUserRepository userRepository,
         AdminRefreshTokenRepository refreshTokenRepository,
+        UserManagementRequestRepository requestRepository,
+        StaffEmailHistoryRepository emailHistoryRepository,
         PasswordEncoder passwordEncoder,
         JwtTokenProvider tokenProvider,
         MfaService mfaService,
+        AdminScopeService scopeService,
         AuditService auditService
     ) {
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
+        this.requestRepository = requestRepository;
+        this.emailHistoryRepository = emailHistoryRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenProvider = tokenProvider;
         this.mfaService = mfaService;
+        this.scopeService = scopeService;
         this.auditService = auditService;
+    }
+
+    // Allows staff to maintain personal contact information while preventing self-service changes to role, operational scope, or permissions.
+    @Transactional
+    public LoginResponse updateProfile(UUID userId, UpdateStaffProfileRequest request) {
+        AdminUserEntity user = userRepository.findById(userId)
+            .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+
+        user.setFirstName(request.firstName().trim());
+        user.setLastName(request.lastName().trim());
+        if (request.phoneNumber() != null && !request.phoneNumber().isBlank()) {
+            user.setPhoneNumber(request.phoneNumber().trim());
+        }
+        user.setUpdatedAt(LocalDateTime.now());
+        userRepository.save(user);
+
+        auditService.logAction(userId, "STAFF_PROFILE_UPDATED", "ADMIN_USER", userId, user.getAgencyId(),
+            "Updated staff profile name and contact information", null, null);
+
+        return getLoginResponseForUser(user);
+    }
+
+    // Blocks duplicate pending requests while applying shorter retry eligibility (1 hour) after rejection and a longer identity-change cooldown (30 days) after approval.
+    public EmailChangeEligibilityResult evaluateEmailChangeEligibility(UUID userId) {
+        if (scopeService.isSystemAdmin()) {
+            return new EmailChangeEligibilityResult(true, false, null, null, "SYSTEM_ADMIN_DIRECT");
+        }
+
+        // Rule 1: Pending Request Block
+        Optional<UserManagementRequestEntity> pendingOpt = requestRepository
+            .findTopByRequestedByAndRequestTypeAndStatusInOrderByCreatedAtDesc(userId, "EMAIL_CHANGE", List.of("PENDING"));
+
+        if (pendingOpt.isPresent()) {
+            UserManagementRequestEntity pendingReq = pendingOpt.get();
+            String pendingEmail = parseRequestedEmailFromReason(pendingReq.getReason());
+            return new EmailChangeEligibilityResult(false, true, pendingEmail, null, "PENDING_REQUEST");
+        }
+
+        // Rule 2: Most recent decided request (APPROVED, COMPLETED, or REJECTED)
+        Optional<UserManagementRequestEntity> latestOpt = requestRepository
+            .findTopByRequestedByAndRequestTypeAndStatusInOrderByCreatedAtDesc(userId, "EMAIL_CHANGE", List.of("APPROVED", "COMPLETED", "REJECTED"));
+
+        if (latestOpt.isPresent()) {
+            UserManagementRequestEntity latest = latestOpt.get();
+            LocalDateTime decisionTime = latest.getReviewedAt() != null ? latest.getReviewedAt() : latest.getUpdatedAt();
+
+            if ("REJECTED".equalsIgnoreCase(latest.getStatus())) {
+                // Allows another request 1 hour after the administrator's rejection because the staff identity itself was not changed.
+                LocalDateTime nextEligibleAt = decisionTime.plusHours(1);
+                if (LocalDateTime.now().isBefore(nextEligibleAt)) {
+                    return new EmailChangeEligibilityResult(false, false, null, nextEligibleAt, "REJECTED_COOLDOWN");
+                }
+            } else if ("APPROVED".equalsIgnoreCase(latest.getStatus()) || "COMPLETED".equalsIgnoreCase(latest.getStatus())) {
+                // Applies the longer cooldown (30 days) from the successful identity-change decision so repeated login-email changes remain controlled.
+                LocalDateTime nextEligibleAt = decisionTime.plusDays(30);
+                if (LocalDateTime.now().isBefore(nextEligibleAt)) {
+                    return new EmailChangeEligibilityResult(false, false, null, nextEligibleAt, "APPROVED_COOLDOWN");
+                }
+            }
+        }
+
+        return new EmailChangeEligibilityResult(true, false, null, null, "ELIGIBLE");
+    }
+
+    private String parseRequestedEmailFromReason(String reasonStr) {
+        if (reasonStr == null) return null;
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+            .compile("(?i)requested\\s+new\\s+email:\\s*([^\\s\\)]+)")
+            .matcher(reasonStr);
+        if (matcher.find()) {
+            return matcher.group(1).trim();
+        }
+        if (reasonStr.contains("(Requested New Email: ") && reasonStr.contains(")")) {
+            int start = reasonStr.indexOf("(Requested New Email: ") + "(Requested New Email: ".length();
+            int end = reasonStr.indexOf(")", start);
+            if (start < end) {
+                return reasonStr.substring(start, end).trim();
+            }
+        }
+        return null;
+    }
+
+    // Routes login-email changes through System Administration for non-System-Admin staff while preventing duplicate pending requests and enforcing the cooldown.
+    @Transactional
+    public Map<String, Object> requestEmailChange(UUID userId, StaffEmailChangeRequestDto request) {
+        if (scopeService.isSystemAdmin()) {
+            throw new IllegalStateException("EMAIL_CHANGE_REQUEST_NOT_REQUIRED_FOR_SYSTEM_ADMIN: System Administrators do not use approval requests. Use direct Change Email in profile.");
+        }
+
+        EmailChangeEligibilityResult eligibility = evaluateEmailChangeEligibility(userId);
+        if (!eligibility.canRequestEmailChange()) {
+            if (eligibility.hasPendingEmailChange()) {
+                throw new IllegalStateException("EMAIL_CHANGE_REQUEST_ALREADY_PENDING: You already have an email change request awaiting review.");
+            }
+            throw new IllegalStateException("EMAIL_CHANGE_COOLDOWN_ACTIVE: You can request another email change on " + eligibility.nextEligibleAt());
+        }
+
+        AdminUserEntity user = userRepository.findById(userId)
+            .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+
+        String targetEmail = request.requestedEmail().trim().toLowerCase(Locale.US);
+        if (userRepository.existsByEmailIgnoreCase(targetEmail)) {
+            throw new IllegalArgumentException("Requested email address " + targetEmail + " is already registered to another account.");
+        }
+
+        UUID agencyId = user.getAgencyId() != null ? user.getAgencyId() : UUID.randomUUID();
+
+        UserManagementRequestEntity reqEntity = new UserManagementRequestEntity(
+            UUID.randomUUID(),
+            "EMAIL_CHANGE",
+            user.getId(),
+            agencyId,
+            request.reason() + " (Requested New Email: " + targetEmail + ")",
+            null,
+            user.getId()
+        );
+        requestRepository.save(reqEntity);
+
+        auditService.logAction(userId, "STAFF_EMAIL_CHANGE_REQUESTED", "USER_MANAGEMENT_REQUEST", reqEntity.getId(), agencyId,
+            "Submitted email change request to " + targetEmail, null, null);
+
+        return Map.of("requestId", reqEntity.getId().toString(), "status", "PENDING", "requestedEmail", targetEmail);
+    }
+
+    public Map<String, Object> getEmailChangeStatus(UUID userId) {
+        Map<String, Object> res = new HashMap<>();
+
+        if (scopeService.isSystemAdmin()) {
+            res.put("status", "SYSTEM_ADMIN_DIRECT");
+            res.put("emailChangeAllowed", true);
+            res.put("hasPendingEmailChange", false);
+            res.put("pendingRequestedEmail", null);
+            res.put("nextEmailChangeEligibleAt", null);
+            return res;
+        }
+
+        EmailChangeEligibilityResult eligibility = evaluateEmailChangeEligibility(userId);
+
+        res.put("status", eligibility.statusReason());
+        res.put("emailChangeAllowed", eligibility.canRequestEmailChange());
+        res.put("hasPendingEmailChange", eligibility.hasPendingEmailChange());
+        res.put("pendingRequestedEmail", eligibility.pendingRequestedEmail());
+        res.put("nextEmailChangeEligibleAt", eligibility.nextEligibleAt() != null ? eligibility.nextEligibleAt().toString() : null);
+
+        return res;
+    }
+
+    // Separates password verification from the new-email step so the current credential is confirmed before identity information can be modified.
+    public Map<String, Object> verifyPasswordForEmailChange(UUID userId, String password) {
+        AdminUserEntity user = userRepository.findById(userId)
+            .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+
+        if (!passwordEncoder.matches(password, user.getPasswordHash())) {
+            throw new BadCredentialsException("Current password is incorrect.");
+        }
+
+        String verificationToken = UUID.randomUUID().toString();
+        LocalDateTime expiresAt = LocalDateTime.now().plusMinutes(5);
+
+        verificationTokenRegistry.put(verificationToken, new VerificationTokenRecord(verificationToken, userId, expiresAt, false));
+
+        return Map.of(
+            "verificationToken", verificationToken,
+            "expiresAt", expiresAt.toString(),
+            "verified", true
+        );
+    }
+
+    // Allows System Administrators to maintain their own login email directly while preserving stronger re-authentication and audit controls.
+    @Transactional
+    public LoginResponse changeEmailDirect(UUID userId, String verificationToken, String newEmail, String confirmNewEmail) {
+        if (verificationToken == null || !verificationTokenRegistry.containsKey(verificationToken)) {
+            throw new BadCredentialsException("Invalid or missing password verification token. Please verify password first.");
+        }
+
+        VerificationTokenRecord record = verificationTokenRegistry.get(verificationToken);
+        if (record.used() || record.expiresAt().isBefore(LocalDateTime.now()) || !record.userId().equals(userId)) {
+            verificationTokenRegistry.remove(verificationToken);
+            throw new BadCredentialsException("Verification token has expired or is invalid. Please confirm current password again.");
+        }
+
+        // Consume verification token immediately (single-use)
+        verificationTokenRegistry.put(verificationToken, new VerificationTokenRecord(record.token(), record.userId(), record.expiresAt(), true));
+
+        if (newEmail == null || newEmail.isBlank() || confirmNewEmail == null || confirmNewEmail.isBlank()) {
+            throw new IllegalArgumentException("New email address and confirmation email address are required.");
+        }
+
+        String cleanNewEmail = newEmail.trim().toLowerCase(Locale.US);
+        String cleanConfirmEmail = confirmNewEmail.trim().toLowerCase(Locale.US);
+
+        if (!cleanNewEmail.equals(cleanConfirmEmail)) {
+            throw new IllegalArgumentException("New email address and confirmation email address do not match.");
+        }
+
+        AdminUserEntity user = userRepository.findById(userId)
+            .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+
+        if (cleanNewEmail.equalsIgnoreCase(user.getEmail())) {
+            throw new IllegalArgumentException("New email address must be different from current email address.");
+        }
+
+        if (userRepository.existsByEmailIgnoreCase(cleanNewEmail)) {
+            throw new IllegalArgumentException("Requested email address " + cleanNewEmail + " is already in use by another account.");
+        }
+
+        String oldEmail = user.getEmail();
+        user.setEmail(cleanNewEmail);
+        user.setUpdatedAt(LocalDateTime.now());
+        userRepository.save(user);
+
+        // Preserves immutable email identity history so prior login addresses and administrative decisions remain auditable after subsequent changes.
+        StaffEmailHistoryEntity history = new StaffEmailHistoryEntity(
+            UUID.randomUUID(),
+            userId,
+            oldEmail,
+            cleanNewEmail,
+            "SELF_SERVICE_SYSTEM_ADMIN",
+            null,
+            userId,
+            "System Admin direct self-service login email update",
+            null,
+            LocalDateTime.now()
+        );
+        emailHistoryRepository.save(history);
+
+        // Invalidate refresh tokens server-side to require re-authentication with new email
+        refreshTokenRepository.deleteByUserId(user.getId());
+
+        auditService.logAction(userId, "SYSTEM_ADMIN_EMAIL_CHANGED", "ADMIN_USER", userId, user.getAgencyId(),
+            "System Admin directly updated email from " + oldEmail + " to " + cleanNewEmail, null, null);
+
+        verificationTokenRegistry.remove(verificationToken);
+
+        return getLoginResponseForUser(user);
+    }
+
+    public List<StaffEmailHistoryEntity> getEmailHistory(UUID userId) {
+        if (scopeService.isSystemAdmin()) {
+            return emailHistoryRepository.findAllByOrderByChangedAtDesc();
+        } else {
+            return emailHistoryRepository.findByStaffUserIdOrderByChangedAtDesc(userId);
+        }
+    }
+
+    @Transactional
+    public LoginResponse completeEmailChange(UUID userId, CompleteEmailChangeRequest request) {
+        AdminUserEntity user = userRepository.findById(userId)
+            .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+
+        if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
+            throw new BadCredentialsException("Current password is incorrect.");
+        }
+
+        UserManagementRequestEntity req = requestRepository
+            .findTopByRequestedByAndRequestTypeAndStatusInOrderByCreatedAtDesc(userId, "EMAIL_CHANGE", List.of("APPROVED"))
+            .orElseThrow(() -> new ResourceNotFoundException("No approved email change request found for this user."));
+
+        String reasonStr = req.getReason();
+        String targetEmail = null;
+        if (reasonStr.contains("(Requested New Email: ") && reasonStr.contains(")")) {
+            int start = reasonStr.indexOf("(Requested New Email: ") + "(Requested New Email: ".length();
+            int end = reasonStr.indexOf(")", start);
+            if (start < end) {
+                targetEmail = reasonStr.substring(start, end).trim();
+            }
+        }
+
+        if (targetEmail == null || targetEmail.isBlank()) {
+            throw new IllegalStateException("Unable to resolve approved target email.");
+        }
+
+        user.setEmail(targetEmail);
+        user.setUpdatedAt(LocalDateTime.now());
+        userRepository.save(user);
+
+        req.setStatus("COMPLETED");
+        req.setUpdatedAt(LocalDateTime.now());
+        requestRepository.save(req);
+
+        auditService.logAction(userId, "STAFF_EMAIL_CHANGED", "ADMIN_USER", userId, user.getAgencyId(),
+            "Completed login email update to " + targetEmail, null, null);
+
+        return getLoginResponseForUser(user);
     }
 
     /**
@@ -228,6 +539,18 @@ public class AdminAuthService {
         refreshTokenRepository.deleteByUserId(userId);
 
         auditService.logAction(userId, "PASSWORD_CHANGED", "ADMIN_USER", userId, user.getAgencyId(), "Admin password changed successfully", null, null);
+    }
+
+    // Restores the complete staff authorization context before protected routes evaluate role permissions after a browser refresh.
+    public LoginResponse getLoginResponseForUser(AdminUserEntity user) {
+        AdminUserPrincipal principal = new AdminUserPrincipal(user);
+        String accessToken = tokenProvider.generateToken(principal);
+
+        Set<String> roleCodes = getRoleCodes(user);
+        Set<String> permCodes = getPermCodes(user);
+        AdminUserResponse userResponse = mapToUserResponse(user, roleCodes);
+
+        return new LoginResponse(accessToken, tokenProvider.getExpirationInSeconds(), userResponse, roleCodes, permCodes, "AUTHENTICATED", null);
     }
 
     private Set<String> getRoleCodes(AdminUserEntity user) {

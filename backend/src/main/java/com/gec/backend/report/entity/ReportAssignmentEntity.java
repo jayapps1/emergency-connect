@@ -25,6 +25,12 @@ public class ReportAssignmentEntity {
     @Column(name = "station_id")
     private UUID stationId;
 
+    @Column(name = "assigned_appliance_id")
+    private UUID assignedApplianceId;
+
+    @Column(name = "response_lead_staff_user_id")
+    private UUID responseLeadStaffUserId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private ReportStatus status = ReportStatus.ASSIGNED;
@@ -66,6 +72,10 @@ public class ReportAssignmentEntity {
     public void setAgencyId(UUID agencyId) { this.agencyId = agencyId; }
     public UUID getStationId() { return stationId; }
     public void setStationId(UUID stationId) { this.stationId = stationId; }
+    public UUID getAssignedApplianceId() { return assignedApplianceId; }
+    public void setAssignedApplianceId(UUID assignedApplianceId) { this.assignedApplianceId = assignedApplianceId; }
+    public UUID getResponseLeadStaffUserId() { return responseLeadStaffUserId; }
+    public void setResponseLeadStaffUserId(UUID responseLeadStaffUserId) { this.responseLeadStaffUserId = responseLeadStaffUserId; }
     public ReportStatus getStatus() { return status; }
     public void setStatus(ReportStatus status) { this.status = status; }
     public LocalDateTime getAssignedAt() { return assignedAt; }

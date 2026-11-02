@@ -33,7 +33,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { authApi } from '@/api/authApi';
 import { useAuthStore } from '@/auth/useAuthStore';
 import { LoginResponse } from '@/types';
@@ -71,6 +71,7 @@ export const LoginPage: React.FC = () => {
   const [, setPendingLoginResp] = useState<LoginResponse | null>(null);
 
   const navigate = useNavigate();
+  const location = useLocation();
   const setAuth = useAuthStore((state) => state.setAuth);
 
   const {
@@ -81,9 +82,14 @@ export const LoginPage: React.FC = () => {
     resolver: zodResolver(loginSchema),
   });
 
+  const redirectAfterLogin = () => {
+    const from = (location.state as any)?.from?.pathname || '/';
+    navigate(from, { replace: true });
+  };
+
   /**
    * Method 1: Password-only authentication.
-   * Creates an authenticated session directly upon valid password verification (NO TOTP prompt afterwards).
+   * Creates an authenticated session directly upon valid password verification.
    */
   const onPasswordSubmit = async (data: LoginFormData) => {
     setErrorMessage(null);
@@ -97,7 +103,7 @@ export const LoginPage: React.FC = () => {
         setAuthState('MFA_SETUP_REQUIRED');
       } else if (response.accessToken) {
         setAuth(response.accessToken, response.user, response.roles, response.permissions);
-        navigate('/');
+        redirectAfterLogin();
       }
     } catch (e: any) {
       if (e.response?.data?.message) {
@@ -112,7 +118,7 @@ export const LoginPage: React.FC = () => {
 
   /**
    * Method 2: Direct Authenticator Code authentication.
-   * Validates 6-digit TOTP code and logs user directly into Command Portal (NO password prompt required).
+   * Validates 6-digit TOTP code and logs user directly into Command Portal.
    */
   const handleDirectTotpAutoSubmit = async (code: string) => {
     if (!totpEmail || !totpEmail.includes('@')) {
@@ -126,7 +132,7 @@ export const LoginPage: React.FC = () => {
       const response = await authApi.loginWithTotpDirect(totpEmail, code);
       if (response.accessToken) {
         setAuth(response.accessToken, response.user, response.roles, response.permissions);
-        navigate('/');
+        redirectAfterLogin();
       }
     } catch (e: any) {
       setErrorMessage(e.response?.data?.message || 'Incorrect or expired authenticator code. Please try again.');
@@ -432,15 +438,6 @@ export const LoginPage: React.FC = () => {
                     </Grid>
                   ))}
                 </Grid>
-              </Box>
-
-              <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-                <Button size="small" variant="outlined" startIcon={<ContentCopyIcon />} onClick={handleCopyRecoveryCodes}>
-                  Copy Codes
-                </Button>
-                <Button size="small" variant="outlined" startIcon={<DownloadIcon />} onClick={handleDownloadRecoveryCodes}>
-                  Download as Text
-                </Button>
               </Box>
 
               <FormControlLabel

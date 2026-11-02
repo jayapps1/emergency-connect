@@ -303,8 +303,8 @@ export const StationsPage: React.FC = () => {
       setEditRegion(station.region);
       setEditDistrict(station.district);
       setEditLocality(station.locality || '');
-      setEditLat(station.latitude);
-      setEditLng(station.longitude);
+      setEditLat(station.latitude ?? null);
+      setEditLng(station.longitude ?? null);
       setEditAccuracy(station.locationAccuracyMeters ?? null);
       setUpdateErrorMessage(null);
       setUpdateLocationOpen(true);

@@ -29,19 +29,19 @@ public class UserManagementRequestController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('ADMIN_USER_UPDATE')")
+    @PreAuthorize("hasAuthority('ADMIN_USER_UPDATE') or hasAuthority('ADMIN_USER_CREATE') or hasRole('ROLE_SYSTEM_ADMIN')")
     public ResponseEntity<UserManagementRequestResponse> submitRequest(@Valid @RequestBody CreateUserManagementRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(requestService.submitRequest(request));
     }
 
     @PostMapping("/{requestId}/approve")
-    @PreAuthorize("hasAuthority('ADMIN_USER_CREATE')")
+    @PreAuthorize("hasAuthority('ADMIN_USER_CREATE') or hasAuthority('ADMIN_USER_UPDATE') or hasRole('ROLE_SYSTEM_ADMIN')")
     public ResponseEntity<UserManagementRequestResponse> approveRequest(@PathVariable UUID requestId) {
         return ResponseEntity.ok(requestService.approveRequest(requestId));
     }
 
     @PostMapping("/{requestId}/reject")
-    @PreAuthorize("hasAuthority('ADMIN_USER_CREATE')")
+    @PreAuthorize("hasAuthority('ADMIN_USER_CREATE') or hasAuthority('ADMIN_USER_UPDATE') or hasRole('ROLE_SYSTEM_ADMIN')")
     public ResponseEntity<UserManagementRequestResponse> rejectRequest(
         @PathVariable UUID requestId,
         @RequestParam(required = false, defaultValue = "Request rejected.") String reason

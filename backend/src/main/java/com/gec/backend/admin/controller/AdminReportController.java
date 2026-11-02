@@ -42,6 +42,19 @@ public class AdminReportController {
         return ResponseEntity.ok(reportWorkflowService.getReports(pageable));
     }
 
+    @GetMapping("/unread-count")
+    @PreAuthorize("hasAuthority('REPORT_READ')")
+    public ResponseEntity<Map<String, Long>> getUnreadIncidentCount() {
+        return ResponseEntity.ok(Map.of("unreadCount", reportWorkflowService.getUnreadIncidentCount()));
+    }
+
+    @PostMapping("/{reportId}/read")
+    @PreAuthorize("hasAuthority('REPORT_READ')")
+    public ResponseEntity<Void> markIncidentAsRead(@PathVariable UUID reportId) {
+        reportWorkflowService.markIncidentAsRead(reportId);
+        return ResponseEntity.ok().build();
+    }
+
     @GetMapping("/{reportId}")
     @PreAuthorize("hasAuthority('REPORT_READ')")
     public ResponseEntity<AdminReportDetailsResponse> getReportDetails(@PathVariable UUID reportId) {

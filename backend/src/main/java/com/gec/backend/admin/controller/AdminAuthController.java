@@ -1,10 +1,8 @@
 package com.gec.backend.admin.controller;
 
-import com.gec.backend.admin.dto.AdminUserResponse;
-import com.gec.backend.admin.dto.ChangePasswordRequest;
-import com.gec.backend.admin.dto.LoginRequest;
-import com.gec.backend.admin.dto.LoginResponse;
+import com.gec.backend.admin.dto.*;
 import com.gec.backend.admin.entity.AdminUserEntity;
+import com.gec.backend.admin.entity.StaffEmailHistoryEntity;
 import com.gec.backend.admin.repository.AdminUserRepository;
 import com.gec.backend.admin.security.AdminUserPrincipal;
 import com.gec.backend.admin.service.AdminAuthService;
@@ -16,13 +14,13 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 @RestController
 @RequestMapping("/api/v1/admin/auth")
@@ -221,28 +219,80 @@ public class AdminAuthController {
     }
 
     @GetMapping("/me")
-    public ResponseEntity<AdminUserResponse> getCurrentUser(@AuthenticationPrincipal AdminUserPrincipal principal) {
+    public ResponseEntity<LoginResponse> getCurrentUser(@AuthenticationPrincipal AdminUserPrincipal principal) {
         if (principal == null) return ResponseEntity.status(401).build();
         AdminUserEntity user = userRepository.findById(principal.getId())
             .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-        return ResponseEntity.ok(new AdminUserResponse(
-            user.getId(),
-            user.getEmail(),
-            user.getFirstName(),
-            user.getLastName(),
-            user.getPhoneNumber(),
-            user.getAgencyId(),
-            null,
-            user.getRegion(),
-            user.getStationId(),
-            null,
-            user.isActive(),
-            user.isLocked(),
-            user.isMustChangePassword(),
-            user.isTotpEnabled(),
-            user.getLastLoginAt(),
-            Set.of()
-        ));
+        return ResponseEntity.ok(authService.getLoginResponseForUser(user));
+    }
+
+    @PutMapping("/profile")
+    public ResponseEntity<LoginResponse> updateProfile(
+        @Valid @RequestBody UpdateStaffProfileRequest request,
+        @AuthenticationPrincipal AdminUserPrincipal principal
+    ) {
+        if (principal == null) return ResponseEntity.status(401).build();
+        return ResponseEntity.ok(authService.updateProfile(principal.getId(), request));
+    }
+
+    @PostMapping("/email-change-request")
+    public ResponseEntity<Map<String, Object>> requestEmailChange(
+        @Valid @RequestBody StaffEmailChangeRequestDto request,
+        @AuthenticationPrincipal AdminUserPrincipal principal
+    ) {
+        if (principal == null) return ResponseEntity.status(401).build();
+        return ResponseEntity.ok(authService.requestEmailChange(principal.getId(), request));
+    }
+
+    @GetMapping("/email-change-status")
+    public ResponseEntity<Map<String, Object>> getEmailChangeStatus(
+        @AuthenticationPrincipal AdminUserPrincipal principal
+    ) {
+        if (principal == null) return ResponseEntity.status(401).build();
+        return ResponseEntity.ok(authService.getEmailChangeStatus(principal.getId()));
+    }
+
+    @PostMapping("/complete-email-change")
+    public ResponseEntity<LoginResponse> completeEmailChange(
+        @Valid @RequestBody CompleteEmailChangeRequest request,
+        @AuthenticationPrincipal AdminUserPrincipal principal
+    ) {
+        if (principal == null) return ResponseEntity.status(401).build();
+        return ResponseEntity.ok(authService.completeEmailChange(principal.getId(), request));
+    }
+
+    @PostMapping("/verify-password")
+    public ResponseEntity<Map<String, Object>> verifyPassword(
+        @RequestBody Map<String, String> body,
+        @AuthenticationPrincipal AdminUserPrincipal principal
+    ) {
+        if (principal == null) return ResponseEntity.status(401).build();
+        String password = body != null ? body.get("password") : null;
+        if (password == null || password.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Current password is required."));
+        }
+        return ResponseEntity.ok(authService.verifyPasswordForEmailChange(principal.getId(), password));
+    }
+
+    @PostMapping("/change-email-direct")
+    @PreAuthorize("hasRole('ROLE_SYSTEM_ADMIN')")
+    public ResponseEntity<LoginResponse> changeEmailDirect(
+        @RequestBody Map<String, String> body,
+        @AuthenticationPrincipal AdminUserPrincipal principal
+    ) {
+        if (principal == null) return ResponseEntity.status(401).build();
+        String token = body.get("verificationToken");
+        String newEmail = body.get("newEmail");
+        String confirmNewEmail = body.get("confirmNewEmail");
+        return ResponseEntity.ok(authService.changeEmailDirect(principal.getId(), token, newEmail, confirmNewEmail));
+    }
+
+    @GetMapping("/email-history")
+    public ResponseEntity<List<StaffEmailHistoryEntity>> getEmailHistory(
+        @AuthenticationPrincipal AdminUserPrincipal principal
+    ) {
+        if (principal == null) return ResponseEntity.status(401).build();
+        return ResponseEntity.ok(authService.getEmailHistory(principal.getId()));
     }
 
     @PostMapping("/change-password")

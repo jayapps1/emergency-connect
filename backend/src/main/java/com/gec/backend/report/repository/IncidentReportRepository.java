@@ -13,6 +13,7 @@ public interface IncidentReportRepository extends JpaRepository<IncidentReportEn
     Optional<IncidentReportEntity> findByPublicReference(String publicReference);
     Optional<IncidentReportEntity> findByClientGeneratedRequestId(UUID clientGeneratedRequestId);
     Page<IncidentReportEntity> findByIdIn(Collection<UUID> ids, Pageable pageable);
+    List<IncidentReportEntity> findByIdIn(Collection<UUID> ids);
     List<IncidentReportEntity> findByReporterPublicUserIdOrderByCreatedAtDesc(UUID reporterPublicUserId);
     List<IncidentReportEntity> findByInstallationIdOrderByCreatedAtDesc(UUID installationId);
     long countByReporterPublicUserId(UUID reporterPublicUserId);

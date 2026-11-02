@@ -13,12 +13,34 @@ export interface ReportRiskAssessment {
   reviewNote?: string;
 }
 
+export interface IncidentFollowUp {
+  id: string;
+  reportId: string;
+  agencyId: string;
+  createdByStaffUserId: string;
+  followUpType: string;
+  status: string;
+  notes: string;
+  scheduledAt?: string;
+  completedAt?: string;
+  createdAt: string;
+}
+
 export const reportApi = {
   getReports: async (page = 0, size = 10): Promise<Page<AdminReportSummary>> => {
     const res = await apiClient.get<Page<AdminReportSummary>>('/api/v1/admin/reports', {
       params: { page, size },
     });
     return res.data;
+  },
+
+  getUnreadCount: async (): Promise<{ unreadCount: number }> => {
+    const res = await apiClient.get<{ unreadCount: number }>('/api/v1/admin/reports/unread-count');
+    return res.data;
+  },
+
+  markAsRead: async (reportId: string): Promise<void> => {
+    await apiClient.post(`/api/v1/admin/reports/${reportId}/read`);
   },
 
   getReportDetails: async (reportId: string): Promise<AdminReportDetails> => {
@@ -53,6 +75,23 @@ export const reportApi = {
 
   reviewRiskAssessment: async (reportId: string, decision: string, note?: string): Promise<ReportRiskAssessment> => {
     const res = await apiClient.post<ReportRiskAssessment>(`/api/v1/admin/report-risk/${reportId}/review`, { decision, note });
+    return res.data;
+  },
+
+  createFollowUp: async (data: { reportId: string; followUpType: string; notes: string; scheduledAt?: string }): Promise<IncidentFollowUp> => {
+    const res = await apiClient.post<IncidentFollowUp>('/api/v1/staff/incidents/follow-ups', data);
+    return res.data;
+  },
+
+  getFollowUps: async (reportId: string): Promise<IncidentFollowUp[]> => {
+    const res = await apiClient.get<IncidentFollowUp[]>(`/api/v1/staff/incidents/${reportId}/follow-ups`);
+    return res.data;
+  },
+
+  updateFollowUpStatus: async (followUpId: string, status: string): Promise<IncidentFollowUp> => {
+    const res = await apiClient.patch<IncidentFollowUp>(`/api/v1/staff/follow-ups/${followUpId}/status`, null, {
+      params: { status },
+    });
     return res.data;
   },
 };

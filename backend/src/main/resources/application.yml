@@ -48,7 +48,7 @@ app:
     simulation-enabled: ${GEC_SMS_SIMULATION_ENABLED:false}
 
     arkesel:
-      api-key: ${ARKESEL_API_KEY:}
+      api-key: ${ARKESEL_API_KEY:}8
       sender-id: ${ARKESEL_SENDER_ID:SkiliteEnt}
 
     otp:

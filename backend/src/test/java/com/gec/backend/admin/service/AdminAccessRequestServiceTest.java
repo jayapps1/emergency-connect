@@ -6,6 +6,7 @@ import com.gec.backend.admin.entity.AdminUserEntity;
 import com.gec.backend.admin.repository.AdminAccessRequestRepository;
 import com.gec.backend.admin.security.AdminScopeService;
 import com.gec.backend.admin.security.AdminUserPrincipal;
+import com.gec.backend.agency.repository.AgencyRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -21,12 +22,14 @@ import static org.mockito.BDDMockito.given;
 class AdminAccessRequestServiceTest {
 
     private final AdminAccessRequestRepository requestRepository = Mockito.mock(AdminAccessRequestRepository.class);
+    private final UserManagementRequestService userRequestService = Mockito.mock(UserManagementRequestService.class);
+    private final AgencyRepository agencyRepository = Mockito.mock(AgencyRepository.class);
     private final AdminUserService userService = Mockito.mock(AdminUserService.class);
     private final AdminScopeService scopeService = Mockito.mock(AdminScopeService.class);
     private final AuditService auditService = Mockito.mock(AuditService.class);
 
     private final AdminAccessRequestService requestService = new AdminAccessRequestService(
-        requestRepository, userService, scopeService, auditService
+        requestRepository, userRequestService, agencyRepository, userService, scopeService, auditService
     );
 
     private final UUID agencyId = UUID.randomUUID();

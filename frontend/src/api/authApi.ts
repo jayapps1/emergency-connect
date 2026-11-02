@@ -1,6 +1,20 @@
 import { apiClient } from './client';
 import { AdminUser, LoginResponse } from '@/types';
 
+export interface StaffEmailHistoryItem {
+  id: string;
+  staffUserId: string;
+  oldEmail: string;
+  newEmail: string;
+  changeType: string;
+  requestId?: string;
+  changedByUserId: string;
+  reason?: string;
+  requestedAt?: string;
+  approvedAt?: string;
+  changedAt: string;
+}
+
 export const authApi = {
   login: async (credentials: { email: string; password: string }): Promise<LoginResponse> => {
     const res = await apiClient.post<LoginResponse>('/api/v1/admin/auth/login', credentials);
@@ -20,6 +34,10 @@ export const authApi = {
   confirmTotpSetup: async (code: string, challenge?: string): Promise<{ message: string; recoveryCodes: string[] }> => {
     const res = await apiClient.post<{ message: string; recoveryCodes: string[] }>('/api/v1/admin/auth/mfa/totp/confirm', { code, challenge });
     return res.data;
+  },
+
+  disableTotp: async (password?: string): Promise<void> => {
+    await apiClient.post('/api/v1/admin/auth/mfa/totp/disable', { password });
   },
 
   verifyMfaTotp: async (challenge: string, code: string): Promise<LoginResponse> => {
@@ -43,6 +61,47 @@ export const authApi = {
 
   getMe: async (): Promise<AdminUser> => {
     const res = await apiClient.get<AdminUser>('/api/v1/admin/auth/me');
+    return res.data;
+  },
+
+  updateProfile: async (data: { firstName: string; lastName: string; phoneNumber?: string }): Promise<LoginResponse> => {
+    const res = await apiClient.put<LoginResponse>('/api/v1/admin/auth/profile', data);
+    return res.data;
+  },
+
+  requestEmailChange: async (data: { requestedEmail: string; reason: string }): Promise<{ requestId: string; status: string }> => {
+    const res = await apiClient.post<{ requestId: string; status: string }>('/api/v1/admin/auth/email-change-request', data);
+    return res.data;
+  },
+
+  getEmailChangeStatus: async (): Promise<{
+    status: string;
+    emailChangeAllowed: boolean;
+    hasPendingEmailChange: boolean;
+    pendingRequestedEmail?: string;
+    nextEmailChangeEligibleAt?: string;
+  }> => {
+    const res = await apiClient.get('/api/v1/admin/auth/email-change-status');
+    return res.data;
+  },
+
+  verifyPasswordForEmailChange: async (password: string): Promise<{ verificationToken: string; expiresAt: string; verified: boolean }> => {
+    const res = await apiClient.post('/api/v1/admin/auth/verify-password', { password });
+    return res.data;
+  },
+
+  changeEmailDirect: async (data: { verificationToken: string; newEmail: string; confirmNewEmail: string }): Promise<LoginResponse> => {
+    const res = await apiClient.post<LoginResponse>('/api/v1/admin/auth/change-email-direct', data);
+    return res.data;
+  },
+
+  getEmailHistory: async (): Promise<StaffEmailHistoryItem[]> => {
+    const res = await apiClient.get<StaffEmailHistoryItem[]>('/api/v1/admin/auth/email-history');
+    return res.data;
+  },
+
+  completeEmailChange: async (currentPassword: string): Promise<LoginResponse> => {
+    const res = await apiClient.post<LoginResponse>('/api/v1/admin/auth/complete-email-change', { currentPassword });
     return res.data;
   },
 

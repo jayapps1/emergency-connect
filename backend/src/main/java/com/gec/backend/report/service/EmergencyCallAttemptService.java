@@ -70,6 +70,7 @@ public class EmergencyCallAttemptService {
         this.auditService = auditService;
     }
 
+    // Records the citizen's emergency call attempt before telecom handoff and server-resolves the destination phone number.
     @Transactional
     public EmergencyCallAttemptResponse createCallAttempt(CreateEmergencyCallAttemptRequest request, String installationPublicId) {
         if (request.clientGeneratedRequestId() != null) {
@@ -137,6 +138,7 @@ public class EmergencyCallAttemptService {
         return toResponse(entity);
     }
 
+    // Marks the call request as launched after Android successfully accepts the telecom handoff.
     @Transactional
     public EmergencyCallAttemptResponse markCallLaunched(UUID callAttemptId) {
         EmergencyCallAttemptEntity entity = callAttemptRepository.findById(callAttemptId)
@@ -151,6 +153,7 @@ public class EmergencyCallAttemptService {
         return toResponse(entity);
     }
 
+    // Resolves staff authorization from the authenticated account and returns call attempts scoped to their agency/station.
     public Page<EmergencyCallAttemptResponse> getStaffCallAttempts(Pageable pageable) {
         validateStaffAccessNotResponder();
         AdminUserPrincipal principal = scopeService.getCurrentPrincipal();
@@ -194,11 +197,7 @@ public class EmergencyCallAttemptService {
         return toResponse(entity);
     }
 
-    /**
-     * Converts a confirmed emergency call attempt into the existing incident
-     * workflow. Conversion is idempotent so concurrent staff actions cannot
-     * create multiple incidents for the same call attempt.
-     */
+    // Converts a confirmed emergency call attempt into an operational incident and transfers the call-initiation location.
     @Transactional
     public EmergencyCallAttemptResponse convertCallAttemptToIncident(UUID callAttemptId, ConvertCallAttemptToIncidentRequest request) {
         validateStaffAccessNotResponder();

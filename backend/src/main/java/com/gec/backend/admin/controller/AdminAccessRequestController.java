@@ -27,6 +27,12 @@ public class AdminAccessRequestController {
         return ResponseEntity.ok(requestService.getRequests());
     }
 
+    @GetMapping("/centralized-summary")
+    @PreAuthorize("hasAuthority('ADMIN_USER_READ')")
+    public ResponseEntity<CentralizedRequestSummaryDto> getCentralizedSummary() {
+        return ResponseEntity.ok(requestService.getCentralizedSummary());
+    }
+
     @PostMapping
     @PreAuthorize("hasAuthority('ADMIN_USER_CREATE')")
     public ResponseEntity<AdminAccessRequestResponse> submitRequest(@Valid @RequestBody CreateAdminAccessRequest request) {
