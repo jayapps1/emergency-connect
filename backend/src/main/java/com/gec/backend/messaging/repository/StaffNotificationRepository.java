@@ -11,4 +11,6 @@ public interface StaffNotificationRepository extends JpaRepository<StaffNotifica
     Page<StaffNotificationEntity> findByStaffUserIdOrderByCreatedAtDesc(UUID staffUserId, Pageable pageable);
     List<StaffNotificationEntity> findByStaffUserIdAndReadAtIsNull(UUID staffUserId);
     long countByStaffUserIdAndReadAtIsNull(UUID staffUserId);
+    void deleteByIdAndStaffUserId(UUID id, UUID staffUserId);
+    void deleteByStaffUserIdAndReadAtIsNotNull(UUID staffUserId);
 }

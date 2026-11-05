@@ -36,7 +36,7 @@ export interface CentralizedRequestItem {
   currentEmail: string;
   requestedEmail?: string;
   reason: string;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'COMPLETED';
+  status: string;
   requestedAt: string;
 }
 
@@ -44,9 +44,11 @@ export interface CentralizedRequestSummary {
   allRequests: CentralizedRequestItem[];
   agencyAccessRequests: AdminAccessRequest[];
   emailChangeRequests: any[];
+  mfaRecoveryRequests: any[];
   totalPendingCount: number;
   agencyAccessPendingCount: number;
   emailChangePendingCount: number;
+  mfaRecoveryPendingCount: number;
 }
 
 export const adminRequestApi = {

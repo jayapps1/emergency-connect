@@ -13,5 +13,19 @@ public record CreateAdminUserRequest(
     UUID agencyId,
     String region,
     UUID stationId,
+    Integer priorityLevel,
     Set<String> roleCodes
-) {}
+) {
+    public CreateAdminUserRequest(
+        String email,
+        String firstName,
+        String lastName,
+        String phoneNumber,
+        UUID agencyId,
+        String region,
+        UUID stationId,
+        Set<String> roleCodes
+    ) {
+        this(email, firstName, lastName, phoneNumber, agencyId, region, stationId, 2, roleCodes);
+    }
+}

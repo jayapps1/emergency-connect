@@ -9,6 +9,9 @@ import com.gec.backend.admin.repository.StaffEmailHistoryRepository;
 import com.gec.backend.admin.repository.UserManagementRequestRepository;
 import com.gec.backend.admin.security.AdminScopeService;
 import com.gec.backend.admin.security.JwtTokenProvider;
+import com.gec.backend.agency.repository.AgencyRepository;
+import com.gec.backend.messaging.service.StaffNotificationService;
+import com.gec.backend.station.repository.StationRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -29,14 +32,17 @@ class AdminAuthServiceTest {
     private final AdminRefreshTokenRepository refreshTokenRepository = Mockito.mock(AdminRefreshTokenRepository.class);
     private final UserManagementRequestRepository requestRepository = Mockito.mock(UserManagementRequestRepository.class);
     private final StaffEmailHistoryRepository emailHistoryRepository = Mockito.mock(StaffEmailHistoryRepository.class);
+    private final AgencyRepository agencyRepository = Mockito.mock(AgencyRepository.class);
+    private final StationRepository stationRepository = Mockito.mock(StationRepository.class);
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private final JwtTokenProvider tokenProvider = new JwtTokenProvider("secretKeyForTestingMustBeAtLeast32BytesLong!", 900000);
     private final MfaService mfaService = Mockito.mock(MfaService.class);
     private final AdminScopeService scopeService = Mockito.mock(AdminScopeService.class);
+    private final StaffNotificationService notificationService = Mockito.mock(StaffNotificationService.class);
     private final AuditService auditService = Mockito.mock(AuditService.class);
 
     private final AdminAuthService authService = new AdminAuthService(
-        userRepository, refreshTokenRepository, requestRepository, emailHistoryRepository, passwordEncoder, tokenProvider, mfaService, scopeService, auditService
+        userRepository, refreshTokenRepository, requestRepository, emailHistoryRepository, agencyRepository, stationRepository, passwordEncoder, tokenProvider, mfaService, scopeService, notificationService, auditService
     );
 
     @Test

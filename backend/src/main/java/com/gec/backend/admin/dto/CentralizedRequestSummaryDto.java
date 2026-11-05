@@ -6,7 +6,9 @@ public record CentralizedRequestSummaryDto(
     List<CentralizedRequestItemDto> allRequests,
     List<AdminAccessRequestResponse> agencyAccessRequests,
     List<UserManagementRequestResponse> emailChangeRequests,
+    List<UserManagementRequestResponse> mfaRecoveryRequests,
     long totalPendingCount,
     long agencyAccessPendingCount,
-    long emailChangePendingCount
+    long emailChangePendingCount,
+    long mfaRecoveryPendingCount
 ) {}

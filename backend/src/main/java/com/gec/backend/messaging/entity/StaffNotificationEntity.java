@@ -29,6 +29,9 @@ public class StaffNotificationEntity {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String body;
 
+    @Column(name = "action_url")
+    private String actionUrl;
+
     @Column(name = "read_at")
     private LocalDateTime readAt;
 
@@ -46,6 +49,19 @@ public class StaffNotificationEntity {
         String title,
         String body
     ) {
+        this(id, staffUserId, reportId, assignmentId, eventType, title, body, null);
+    }
+
+    public StaffNotificationEntity(
+        UUID id,
+        UUID staffUserId,
+        UUID reportId,
+        UUID assignmentId,
+        String eventType,
+        String title,
+        String body,
+        String actionUrl
+    ) {
         this.id = id;
         this.staffUserId = staffUserId;
         this.reportId = reportId;
@@ -53,6 +69,8 @@ public class StaffNotificationEntity {
         this.eventType = eventType;
         this.title = title;
         this.body = body;
+        this.actionUrl = actionUrl;
+        this.createdAt = LocalDateTime.now();
     }
 
     public UUID getId() { return id; }
@@ -69,6 +87,8 @@ public class StaffNotificationEntity {
     public void setTitle(String title) { this.title = title; }
     public String getBody() { return body; }
     public void setBody(String body) { this.body = body; }
+    public String getActionUrl() { return actionUrl; }
+    public void setActionUrl(String actionUrl) { this.actionUrl = actionUrl; }
     public LocalDateTime getReadAt() { return readAt; }
     public void setReadAt(LocalDateTime readAt) { this.readAt = readAt; }
     public LocalDateTime getCreatedAt() { return createdAt; }

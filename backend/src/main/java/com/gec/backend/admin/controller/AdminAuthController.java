@@ -3,10 +3,12 @@ package com.gec.backend.admin.controller;
 import com.gec.backend.admin.dto.*;
 import com.gec.backend.admin.entity.AdminUserEntity;
 import com.gec.backend.admin.entity.StaffEmailHistoryEntity;
+import com.gec.backend.messaging.entity.StaffNotificationEntity;
 import com.gec.backend.admin.repository.AdminUserRepository;
 import com.gec.backend.admin.security.AdminUserPrincipal;
 import com.gec.backend.admin.service.AdminAuthService;
 import com.gec.backend.admin.service.MfaService;
+import com.gec.backend.messaging.service.StaffNotificationService;
 import com.gec.backend.common.exception.ResourceNotFoundException;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/admin/auth")
@@ -29,11 +32,18 @@ public class AdminAuthController {
     private final AdminAuthService authService;
     private final MfaService mfaService;
     private final AdminUserRepository userRepository;
+    private final StaffNotificationService notificationService;
 
-    public AdminAuthController(AdminAuthService authService, MfaService mfaService, AdminUserRepository userRepository) {
+    public AdminAuthController(
+        AdminAuthService authService,
+        MfaService mfaService,
+        AdminUserRepository userRepository,
+        StaffNotificationService notificationService
+    ) {
         this.authService = authService;
         this.mfaService = mfaService;
         this.userRepository = userRepository;
+        this.notificationService = notificationService;
     }
 
     @PostMapping("/login")
@@ -287,12 +297,69 @@ public class AdminAuthController {
         return ResponseEntity.ok(authService.changeEmailDirect(principal.getId(), token, newEmail, confirmNewEmail));
     }
 
+    @PostMapping("/generate-recovery-codes-direct")
+    @PreAuthorize("hasRole('ROLE_SYSTEM_ADMIN')")
+    public ResponseEntity<List<String>> generateRecoveryCodesDirect(
+        @RequestBody Map<String, String> body,
+        @AuthenticationPrincipal AdminUserPrincipal principal
+    ) {
+        if (principal == null) return ResponseEntity.status(401).build();
+        String token = body != null ? body.get("verificationToken") : null;
+        return ResponseEntity.ok(authService.generateRecoveryCodesDirect(principal.getId(), token));
+    }
+
     @GetMapping("/email-history")
     public ResponseEntity<List<StaffEmailHistoryEntity>> getEmailHistory(
         @AuthenticationPrincipal AdminUserPrincipal principal
     ) {
         if (principal == null) return ResponseEntity.status(401).build();
         return ResponseEntity.ok(authService.getEmailHistory(principal.getId()));
+    }
+
+    @GetMapping("/notifications")
+    public ResponseEntity<List<StaffNotificationEntity>> getNotifications(
+        @AuthenticationPrincipal AdminUserPrincipal principal
+    ) {
+        if (principal == null) return ResponseEntity.status(401).build();
+        return ResponseEntity.ok(notificationService.getUserNotifications(principal.getId()));
+    }
+
+    @PutMapping("/notifications/{id}/read")
+    public ResponseEntity<Void> markNotificationRead(
+        @PathVariable UUID id,
+        @AuthenticationPrincipal AdminUserPrincipal principal
+    ) {
+        if (principal == null) return ResponseEntity.status(401).build();
+        notificationService.markAsRead(id, principal.getId());
+        return ResponseEntity.ok().build();
+    }
+
+    @PutMapping("/notifications/read-all")
+    public ResponseEntity<Void> markAllNotificationsRead(
+        @AuthenticationPrincipal AdminUserPrincipal principal
+    ) {
+        if (principal == null) return ResponseEntity.status(401).build();
+        notificationService.markAllAsRead(principal.getId());
+        return ResponseEntity.ok().build();
+    }
+
+    @DeleteMapping("/notifications/{id}")
+    public ResponseEntity<Void> deleteNotification(
+        @PathVariable UUID id,
+        @AuthenticationPrincipal AdminUserPrincipal principal
+    ) {
+        if (principal == null) return ResponseEntity.status(401).build();
+        notificationService.deleteNotification(id, principal.getId());
+        return ResponseEntity.ok().build();
+    }
+
+    @DeleteMapping("/notifications/read")
+    public ResponseEntity<Void> deleteAllReadNotifications(
+        @AuthenticationPrincipal AdminUserPrincipal principal
+    ) {
+        if (principal == null) return ResponseEntity.status(401).build();
+        notificationService.deleteAllRead(principal.getId());
+        return ResponseEntity.ok().build();
     }
 
     @PostMapping("/change-password")

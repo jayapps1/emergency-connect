@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -66,5 +67,32 @@ public class AdminUserController {
     @PreAuthorize("hasAuthority('ADMIN_USER_UPDATE')")
     public ResponseEntity<Map<String, String>> resetUserPassword(@PathVariable UUID id) {
         return ResponseEntity.ok(userService.resetUserPassword(id));
+    }
+
+    @PostMapping("/transfer-leadership")
+    @PreAuthorize("hasAuthority('ADMIN_USER_UPDATE') or hasRole('ROLE_SYSTEM_ADMIN')")
+    public ResponseEntity<AdminUserResponse> transferAgencyLeadership(@RequestBody Map<String, String> body) {
+        UUID recipientUserId = UUID.fromString(body.get("recipientUserId"));
+        String password = body.get("password");
+        String reason = body.get("reason");
+        return ResponseEntity.ok(userService.transferAgencyLeadership(recipientUserId, password, reason));
+    }
+
+    @PostMapping("/transfer-national-leadership")
+    @PreAuthorize("hasRole('ROLE_SYSTEM_ADMIN')")
+    public ResponseEntity<AdminUserResponse> transferNationalLeadership(@RequestBody Map<String, String> body) {
+        UUID recipientUserId = UUID.fromString(body.get("recipientUserId"));
+        String password = body.get("password");
+        String reason = body.get("reason");
+        return ResponseEntity.ok(userService.transferNationalLeadership(recipientUserId, password, reason));
+    }
+
+    @PostMapping("/configure-agency-priorities")
+    @PreAuthorize("hasRole('ROLE_SYSTEM_ADMIN')")
+    public ResponseEntity<List<AdminUserResponse>> configureAgencyPriorities(
+        @RequestParam UUID agencyId,
+        @RequestBody Map<UUID, Integer> priorityMap
+    ) {
+        return ResponseEntity.ok(userService.configureAgencyPriorities(agencyId, priorityMap));
     }
 }

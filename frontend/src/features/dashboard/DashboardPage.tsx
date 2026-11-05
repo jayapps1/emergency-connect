@@ -1,11 +1,22 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
+  Alert,
   Box,
   Button,
   Card,
   CardContent,
+  Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  FormControl,
   Grid,
+  IconButton,
+  InputLabel,
+  MenuItem,
   Rating,
+  Select,
   Skeleton,
   Table,
   TableBody,
@@ -13,6 +24,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TextField,
   Typography,
 } from '@mui/material';
 import BusinessIcon from '@mui/icons-material/Business';
@@ -23,23 +35,55 @@ import ReportProblemIcon from '@mui/icons-material/ReportProblem';
 import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
 import StarIcon from '@mui/icons-material/Star';
 import VisibilityIcon from '@mui/icons-material/Visibility';
-import { useQuery } from '@tanstack/react-query';
+import MilitaryTechIcon from '@mui/icons-material/MilitaryTech';
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
+import CloseIcon from '@mui/icons-material/Close';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { reportApi } from '@/api/reportApi';
 import { stationApi } from '@/api/stationApi';
 import { agencyApi } from '@/api/agencyApi';
 import { applianceApi } from '@/api/applianceApi';
 import { reviewApi } from '@/api/reviewApi';
+import { dashboardApi } from '@/api/dashboardApi';
+import { userApi } from '@/api/userApi';
 import { MetricCard } from './MetricCard';
 import { AgencyPerformanceCard } from './AgencyPerformanceCard';
 import { RequiresAttentionPanel } from './RequiresAttentionPanel';
 import { EmergencyActivityChart } from './EmergencyActivityChart';
 import { useAuthStore } from '@/auth/useAuthStore';
 import { useNavigate } from 'react-router-dom';
+import { AdminUser } from '@/types';
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { user, hasPermission, hasRole } = useAuthStore();
   const isSysAdmin = hasRole('SYSTEM_ADMIN');
+
+  const isAgencyLeadP1 =
+    (hasRole('AGENCY_ADMIN') || hasRole('ROLE_AGENCY_ADMIN')) && user?.priorityLevel === 1;
+
+  const canManagePrioritiesOnDashboard = isSysAdmin || isAgencyLeadP1;
+
+  // Manage Staff Priorities Modal States
+  const [managePrioritiesModalOpen, setManagePrioritiesModalOpen] = useState(false);
+  const [priorityGroupAgencyId, setPriorityGroupAgencyId] = useState('ALL');
+  const [priorityGroupRole, setPriorityGroupRole] = useState('AGENCY_ADMIN');
+  const [assignPriorityDialogOpen, setAssignPriorityDialogOpen] = useState(false);
+  const [assignTargetUser, setAssignTargetUser] = useState<AdminUser | null>(null);
+  const [assignPriorityVal, setAssignPriorityVal] = useState<number | null>(2);
+
+  // Transfer Leadership Modal States
+  const [transferLeadershipOpen, setTransferLeadershipOpen] = useState(false);
+  const [transferRecipientId, setTransferRecipientId] = useState('');
+  const [transferPassword, setTransferPassword] = useState('');
+  const [transferReason, setTransferReason] = useState('');
+
+  const { data: dashboardSummary, isLoading: loadingSummary } = useQuery({
+    queryKey: ['dashboardSummary'],
+    queryFn: dashboardApi.getSummary,
+    enabled: hasPermission('REPORT_READ'),
+  });
 
   const { data: reportsPage, isLoading: loadingReports } = useQuery({
     queryKey: ['dashboardReports'],
@@ -53,10 +97,16 @@ export const DashboardPage: React.FC = () => {
     enabled: hasPermission('STATION_READ'),
   });
 
-  const { data: agencies, isLoading: loadingAgencies } = useQuery({
+  const { data: agencies = [], isLoading: loadingAgencies } = useQuery({
     queryKey: ['dashboardAgencies'],
     queryFn: agencyApi.getAgencies,
     enabled: hasPermission('AGENCY_READ'),
+  });
+
+  const { data: usersPage } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => userApi.getUsers(0, 100),
+    enabled: canManagePrioritiesOnDashboard,
   });
 
   const { data: applianceSummary, isLoading: loadingAppliances } = useQuery({
@@ -79,14 +129,67 @@ export const DashboardPage: React.FC = () => {
 
   const reports = reportsPage?.content || [];
   const recentReviews = recentReviewsPage?.content || [];
+  const rawUsers = usersPage?.content || [];
 
-  const openIncidentsCount = reports.filter(
+  const eligibleTransferRecipients = rawUsers.filter(
+    (u) =>
+      u.active &&
+      u.id !== user?.id &&
+      (u.roles.includes('AGENCY_ADMIN') || u.roles.includes('ROLE_AGENCY_ADMIN')) &&
+      (!user?.agencyId || u.agencyId === user.agencyId)
+  );
+
+  const priorityGroupUsers = rawUsers.filter((u) => {
+    if (priorityGroupAgencyId !== 'ALL' && u.agencyId !== priorityGroupAgencyId) return false;
+    if (priorityGroupRole !== 'ALL') {
+      const targetRoleCode = priorityGroupRole.replace('ROLE_', '');
+      const hasRoleMatch = u.roles.some((r) => r.replace('ROLE_', '') === targetRoleCode);
+      if (!hasRoleMatch) return false;
+    }
+    return true;
+  });
+
+  const updateUserMutation = useMutation({
+    mutationFn: (data: { id: string; email: string; firstName: string; lastName: string; phoneNumber?: string; agencyId?: string; region?: string; stationId?: string; priorityLevel?: number | null; roleCodes?: string[] }) =>
+      userApi.updateUser(data.id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setAssignPriorityDialogOpen(false);
+      setAssignTargetUser(null);
+    },
+    onError: (err: any) => {
+      alert(err.response?.data?.message || 'Failed to update user priority.');
+    },
+  });
+
+  const transferLeadershipMutation = useMutation({
+    mutationFn: () =>
+      userApi.transferAgencyLeadership({
+        recipientUserId: transferRecipientId,
+        password: transferPassword,
+        reason: transferReason,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['centralizedAdminRequests'] });
+      setTransferLeadershipOpen(false);
+      setTransferRecipientId('');
+      setTransferPassword('');
+      setTransferReason('');
+      alert('Agency Leadership transferred successfully!');
+    },
+    onError: (err: any) => {
+      alert(err.response?.data?.message || 'Failed to transfer agency leadership.');
+    },
+  });
+
+  const openIncidentsCount = dashboardSummary?.openIncidents ?? reports.filter(
     (r) => r.status === 'SUBMITTED' || r.status === 'RECEIVED' || r.status === 'ACKNOWLEDGED' || r.status === 'IN_PROGRESS'
   ).length;
 
-  const criticalCount = reports.filter((r) => r.severity === 'CRITICAL').length;
+  const criticalCount = dashboardSummary?.criticalIncidents ?? reports.filter((r) => r.severity === 'CRITICAL').length;
 
-  const unacknowledgedCount = reports.filter(
+  const unacknowledgedCount = dashboardSummary?.unacknowledgedReports ?? reports.filter(
     (r) => r.status === 'SUBMITTED' || r.status === 'RECEIVED'
   ).length;
 
@@ -122,7 +225,7 @@ export const DashboardPage: React.FC = () => {
           <Grid item xs={12} sm={6} md={isSysAdmin ? 2.4 : 3}>
             <MetricCard
               title="Active Stations"
-              value={loadingStations ? <Skeleton width={40} /> : stationsPage?.totalElements || 0}
+              value={loadingStations ? <Skeleton width={40} /> : (dashboardSummary?.activeStations ?? stationsPage?.totalElements ?? 0)}
               subtitle="Operational centers"
               icon={<LocalHospitalIcon />}
               iconBg="#ECFDF5"
@@ -136,7 +239,7 @@ export const DashboardPage: React.FC = () => {
             <Grid item xs={12} sm={6} md={isSysAdmin ? 2.4 : 3}>
               <MetricCard
                 title="Active Incidents"
-                value={loadingReports ? <Skeleton width={40} /> : openIncidentsCount}
+                value={loadingSummary && loadingReports ? <Skeleton width={40} /> : openIncidentsCount}
                 subtitle="Open responses"
                 icon={<AssignmentIcon />}
                 iconBg="#FEF3C7"
@@ -148,7 +251,7 @@ export const DashboardPage: React.FC = () => {
             <Grid item xs={12} sm={6} md={isSysAdmin ? 2.4 : 3}>
               <MetricCard
                 title="Critical Incidents"
-                value={loadingReports ? <Skeleton width={40} /> : criticalCount}
+                value={loadingSummary && loadingReports ? <Skeleton width={40} /> : criticalCount}
                 subtitle="High priority alerts"
                 icon={<WarningIcon />}
                 iconBg="#FEF2F2"
@@ -160,7 +263,7 @@ export const DashboardPage: React.FC = () => {
             <Grid item xs={12} sm={6} md={isSysAdmin ? 2.4 : 3}>
               <MetricCard
                 title="Awaiting Action"
-                value={loadingReports ? <Skeleton width={40} /> : unacknowledgedCount}
+                value={loadingSummary && loadingReports ? <Skeleton width={40} /> : unacknowledgedCount}
                 subtitle="Unacknowledged reports"
                 icon={<ReportProblemIcon />}
                 iconBg="#F3F4F6"
@@ -171,6 +274,40 @@ export const DashboardPage: React.FC = () => {
           </>
         )}
       </Grid>
+
+      {/* Agency Leadership & Priority Hierarchy Card Section */}
+      <Card sx={{ mb: 4 }}>
+        <CardContent sx={{ p: 3 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <MilitaryTechIcon color="warning" />
+              <Typography variant="h6" fontWeight="bold">
+                Agency Leadership & Priority Hierarchy
+              </Typography>
+            </Box>
+            {canManagePrioritiesOnDashboard && (
+              <Button
+                variant="outlined"
+                color="primary"
+                size="small"
+                startIcon={<MilitaryTechIcon />}
+                onClick={() => {
+                  setPriorityGroupAgencyId(user?.agencyId || 'ALL');
+                  setPriorityGroupRole('AGENCY_ADMIN');
+                  setManagePrioritiesModalOpen(true);
+                }}
+              >
+                Manage Priorities
+              </Button>
+            )}
+          </Box>
+          <Typography variant="body2" color="text.secondary">
+            {isSysAdmin
+              ? 'National oversight of Agency Leads (Priority 1) and senior administrative staff hierarchies.'
+              : `Agency Lead: ${user?.firstName} ${user?.lastName} (${user?.email}) — Priority 1 (Agency Lead). You have authorized control over your agency's staff priority assignments.`}
+          </Typography>
+        </CardContent>
+      </Card>
 
       {/* Agency Admin Operations & Review Cards */}
       {!isSysAdmin && (
@@ -186,9 +323,11 @@ export const DashboardPage: React.FC = () => {
                       Appliance Fleet Status
                     </Typography>
                   </Box>
-                  <Button size="small" onClick={() => navigate('/appliances')}>
-                    Manage Fleet
-                  </Button>
+                  {hasPermission('STATION_READ') && (
+                    <Button size="small" onClick={() => navigate('/appliances')}>
+                      Manage Fleet
+                    </Button>
+                  )}
                 </Box>
 
                 {loadingAppliances ? (
@@ -228,9 +367,11 @@ export const DashboardPage: React.FC = () => {
                       Citizen Response Rating
                     </Typography>
                   </Box>
-                  <Button size="small" onClick={() => navigate('/reviews')}>
-                    View All Reviews
-                  </Button>
+                  {hasPermission('REPORT_READ') && (
+                    <Button size="small" onClick={() => navigate('/reviews')}>
+                      View All Reviews
+                    </Button>
+                  )}
                 </Box>
 
                 {loadingReviews ? (
@@ -323,9 +464,11 @@ export const DashboardPage: React.FC = () => {
               <Typography variant="h6" fontWeight="bold">
                 Recent Citizen Feedback
               </Typography>
-              <Button size="small" onClick={() => navigate('/reviews')}>
-                View All Reviews
-              </Button>
+              {hasPermission('REPORT_READ') && (
+                <Button size="small" onClick={() => navigate('/reviews')}>
+                  View All Reviews
+                </Button>
+              )}
             </Box>
 
             <TableContainer>
@@ -368,6 +511,239 @@ export const DashboardPage: React.FC = () => {
           <EmergencyActivityChart />
         </Grid>
       </Grid>
+
+      {/* Staff Priority Management Modal */}
+      <Dialog open={managePrioritiesModalOpen} onClose={() => setManagePrioritiesModalOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 'bold' }}>
+          <span>Staff Priority Management</span>
+          <IconButton onClick={() => setManagePrioritiesModalOpen(false)} size="small">
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Grid container spacing={2} sx={{ mb: 2 }}>
+            <Grid item xs={6}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Filter Agency</InputLabel>
+                <Select
+                  value={priorityGroupAgencyId}
+                  label="Filter Agency"
+                  onChange={(e) => setPriorityGroupAgencyId(e.target.value)}
+                >
+                  <MenuItem value="ALL">All Agencies</MenuItem>
+                  {agencies.map((ag) => (
+                    <MenuItem key={ag.id} value={ag.id}>
+                      {ag.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={6}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Role Group</InputLabel>
+                <Select
+                  value={priorityGroupRole}
+                  label="Role Group"
+                  onChange={(e) => setPriorityGroupRole(e.target.value)}
+                >
+                  <MenuItem value="ALL">All Roles</MenuItem>
+                  <MenuItem value="AGENCY_ADMIN">AGENCY_ADMIN</MenuItem>
+                  <MenuItem value="REGIONAL_ADMIN">REGIONAL_ADMIN</MenuItem>
+                  <MenuItem value="STATION_ADMIN">STATION_ADMIN</MenuItem>
+                  <MenuItem value="CONTROL_ROOM_OPERATOR">CONTROL_ROOM_OPERATOR</MenuItem>
+                  <MenuItem value="RESPONDER">RESPONDER</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+          </Grid>
+
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Staff Name & Email</TableCell>
+                  <TableCell>Agency / Scope</TableCell>
+                  <TableCell>Current Priority</TableCell>
+                  <TableCell align="right">Action</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {priorityGroupUsers.map((u) => {
+                  const pLevel = u.priorityLevel;
+                  return (
+                    <TableRow key={u.id} hover>
+                      <TableCell sx={{ fontWeight: 'bold' }}>
+                        {u.firstName} {u.lastName} ({u.email})
+                      </TableCell>
+                      <TableCell>{u.agencyName || 'Platform Scope'}</TableCell>
+                      <TableCell>
+                        {pLevel === 1 ? (
+                          <Chip label="Priority 1 — Agency Lead" color="warning" size="small" sx={{ fontWeight: 'bold' }} />
+                        ) : pLevel === 2 ? (
+                          <Chip label="Priority 2" color="primary" size="small" />
+                        ) : pLevel === 3 ? (
+                          <Chip label="Priority 3" size="small" variant="outlined" />
+                        ) : (
+                          <Chip label="Not Assigned" size="small" variant="outlined" sx={{ color: 'text.secondary' }} />
+                        )}
+                      </TableCell>
+                      <TableCell align="right">
+                        <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                          {pLevel === 1 && (isSysAdmin || isAgencyLeadP1) && (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              color="warning"
+                              startIcon={<SwapHorizIcon />}
+                              onClick={() => {
+                                setTransferRecipientId('');
+                                setTransferPassword('');
+                                setTransferReason('');
+                                setTransferLeadershipOpen(true);
+                              }}
+                            >
+                              Transfer Leadership
+                            </Button>
+                          )}
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => {
+                              setAssignTargetUser(u);
+                              setAssignPriorityVal(u.priorityLevel ?? 2);
+                              setAssignPriorityDialogOpen(true);
+                            }}
+                          >
+                            {pLevel != null ? 'Edit Priority' : 'Assign Priority'}
+                          </Button>
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {priorityGroupUsers.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} align="center" sx={{ py: 3 }}>
+                      No staff members match the selected agency and role group filter.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setManagePrioritiesModalOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Assign Priority Dialog */}
+      <Dialog open={assignPriorityDialogOpen} onClose={() => setAssignPriorityDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle fontWeight="bold">Assign Priority Level</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Staff Member: <strong>{assignTargetUser?.firstName} {assignTargetUser?.lastName}</strong> ({assignTargetUser?.email})
+          </Typography>
+
+          <FormControl fullWidth size="small" margin="normal">
+            <InputLabel>Priority Level</InputLabel>
+            <Select
+              value={assignPriorityVal ?? ''}
+              label="Priority Level"
+              onChange={(e) => setAssignPriorityVal(e.target.value === '' ? null : Number(e.target.value))}
+            >
+              <MenuItem value="">Not Assigned</MenuItem>
+              {isSysAdmin && <MenuItem value={1}>Priority 1 (Agency Lead)</MenuItem>}
+              <MenuItem value={2}>Priority 2 (Senior Admin)</MenuItem>
+              <MenuItem value={3}>Priority 3 (Staff Operator)</MenuItem>
+            </Select>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAssignPriorityDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="primary"
+            disabled={updateUserMutation.isPending || !assignTargetUser}
+            onClick={() => {
+              if (!assignTargetUser) return;
+              updateUserMutation.mutate({
+                id: assignTargetUser.id,
+                email: assignTargetUser.email,
+                firstName: assignTargetUser.firstName,
+                lastName: assignTargetUser.lastName,
+                phoneNumber: assignTargetUser.phoneNumber,
+                agencyId: assignTargetUser.agencyId,
+                region: assignTargetUser.region,
+                stationId: assignTargetUser.stationId,
+                priorityLevel: assignPriorityVal,
+                roleCodes: assignTargetUser.roles.map((r) => r.replace('ROLE_', '')),
+              });
+            }}
+          >
+            {updateUserMutation.isPending ? 'Saving...' : 'Save Priority'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Transfer Agency Leadership Dialog */}
+      <Dialog open={transferLeadershipOpen} onClose={() => setTransferLeadershipOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle fontWeight="bold">Transfer Agency Leadership</DialogTitle>
+        <DialogContent dividers>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            Transferring leadership designates the recipient as <strong>Priority 1 (Agency Lead)</strong>. Your priority will become Priority 2.
+          </Alert>
+
+          <FormControl fullWidth size="small" margin="normal" required>
+            <InputLabel>New Agency Lead (Recipient)</InputLabel>
+            <Select
+              value={transferRecipientId}
+              label="New Agency Lead (Recipient)"
+              onChange={(e) => setTransferRecipientId(e.target.value)}
+            >
+              {eligibleTransferRecipients.map((u) => (
+                <MenuItem key={u.id} value={u.id}>
+                  {u.firstName} {u.lastName} ({u.email})
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <TextField
+            fullWidth
+            size="small"
+            label="Current Password"
+            type="password"
+            value={transferPassword}
+            onChange={(e) => setTransferPassword(e.target.value)}
+            margin="normal"
+            required
+          />
+
+          <TextField
+            fullWidth
+            multiline
+            rows={2}
+            label="Handover / Transfer Reason"
+            placeholder="e.g. Official administrative handover..."
+            value={transferReason}
+            onChange={(e) => setTransferReason(e.target.value)}
+            margin="normal"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTransferLeadershipOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="warning"
+            disabled={transferLeadershipMutation.isPending || !transferRecipientId || !transferPassword}
+            onClick={() => transferLeadershipMutation.mutate()}
+          >
+            {transferLeadershipMutation.isPending ? 'Transferring...' : 'Confirm Transfer'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

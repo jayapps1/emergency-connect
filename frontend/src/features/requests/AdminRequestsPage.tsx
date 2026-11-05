@@ -10,9 +10,12 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  Divider,
+  FormControl,
   Grid,
   IconButton,
+  InputLabel,
+  MenuItem,
+  Select,
   Skeleton,
   Tab,
   Tabs,
@@ -28,9 +31,11 @@ import {
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import EditIcon from '@mui/icons-material/Edit';
 import CloseIcon from '@mui/icons-material/Close';
+import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
+import KeyIcon from '@mui/icons-material/Key';
+import UndoIcon from '@mui/icons-material/Undo';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminRequestApi, CentralizedRequestItem } from '@/api/adminRequestApi';
 import { userRequestApi } from '@/api/userRequestApi';
@@ -43,12 +48,20 @@ export const AdminRequestsPage: React.FC = () => {
   const [manageModalOpen, setManageModalOpen] = useState(false);
   const [emailApproveConfirmReq, setEmailApproveConfirmReq] = useState<CentralizedRequestItem | null>(null);
 
+  // Agency Verification Modal States for 2FA Recovery
+  const [agencyVerifyModalOpen, setAgencyVerifyModalOpen] = useState(false);
+  const [verificationMethod, setVerificationMethod] = useState('OFFICIAL_ID_CHECK');
+  const [verificationNotes, setVerificationNotes] = useState('');
+
+  // System Approval Modal State for 2FA Recovery
+  const [systemApproveRecoveryModalOpen, setSystemApproveRecoveryModalOpen] = useState(false);
+
   const [rejectDialogReq, setRejectDialogReq] = useState<CentralizedRequestItem | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [approvedPasswordDialog, setApprovedPasswordDialog] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
-  const { hasRole } = useAuthStore();
+  const { hasRole, user } = useAuthStore();
   const isSysAdmin = hasRole('SYSTEM_ADMIN');
 
   const { data: summaryData, isLoading } = useQuery({
@@ -78,6 +91,44 @@ export const AdminRequestsPage: React.FC = () => {
     },
   });
 
+  const withdrawMutation = useMutation({
+    mutationFn: (requestId: string) => userRequestApi.withdrawRecoveryRequest(requestId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['centralizedAdminRequests'] });
+      queryClient.invalidateQueries({ queryKey: ['myPersonalRequests'] });
+      queryClient.invalidateQueries({ queryKey: ['myUserRequests'] });
+      setManageModalOpen(false);
+      setSelectedRequest(null);
+    },
+  });
+
+  const agencyVerifyRecoveryMutation = useMutation({
+    mutationFn: () =>
+      selectedRequest
+        ? userRequestApi.agencyVerifyRecovery(selectedRequest.id, {
+            verificationMethod,
+            verificationNotes,
+          })
+        : Promise.reject('No request selected'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['centralizedAdminRequests'] });
+      setAgencyVerifyModalOpen(false);
+      setManageModalOpen(false);
+      setSelectedRequest(null);
+    },
+  });
+
+  const systemApproveRecoveryMutation = useMutation({
+    mutationFn: () =>
+      selectedRequest ? userRequestApi.systemApproveRecovery(selectedRequest.id) : Promise.reject('No request selected'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['centralizedAdminRequests'] });
+      setSystemApproveRecoveryModalOpen(false);
+      setManageModalOpen(false);
+      setSelectedRequest(null);
+    },
+  });
+
   const rejectAgencyAccessMutation = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) => adminRequestApi.rejectRequest(id, reason),
     onSuccess: () => {
@@ -91,6 +142,17 @@ export const AdminRequestsPage: React.FC = () => {
 
   const rejectEmailChangeMutation = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) => userRequestApi.rejectRequest(id, reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['centralizedAdminRequests'] });
+      setRejectDialogReq(null);
+      setRejectionReason('');
+      setManageModalOpen(false);
+      setSelectedRequest(null);
+    },
+  });
+
+  const rejectRecoveryMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => userRequestApi.rejectRecoveryRequest(id, reason),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['centralizedAdminRequests'] });
       setRejectDialogReq(null);
@@ -115,10 +177,18 @@ export const AdminRequestsPage: React.FC = () => {
   const totalPending = summaryData?.totalPendingCount || 0;
   const agencyAccessPending = summaryData?.agencyAccessPendingCount || 0;
   const emailChangePending = summaryData?.emailChangePendingCount || 0;
+  const mfaRecoveryPending = summaryData?.mfaRecoveryPendingCount || 0;
 
   const allRequests = summaryData?.allRequests || [];
   const agencyAccessRequests = (summaryData?.allRequests || []).filter((r) => r.requestType === 'AGENCY_ADMIN_ACCESS');
   const emailChangeRequests = (summaryData?.allRequests || []).filter((r) => r.requestType === 'EMAIL_CHANGE');
+  const mfaRecoveryRequests = (summaryData?.allRequests || []).filter((r) => r.requestType === 'MFA_RECOVERY_CODE_REISSUE');
+
+  const isRequestOwner =
+    selectedRequest &&
+    (selectedRequest.requestedByName?.includes(user?.firstName || '') ||
+      selectedRequest.targetUserName?.includes(user?.firstName || '') ||
+      selectedRequest.currentEmail === user?.email);
 
   return (
     <Box>
@@ -146,6 +216,7 @@ export const AdminRequestsPage: React.FC = () => {
           <Tab label={`ALL REQUESTS (${allRequests.length})`} />
           <Tab label={`AGENCY ADMIN ACCESS (${agencyAccessRequests.length}${agencyAccessPending > 0 ? ` · ${agencyAccessPending} Pending` : ''})`} />
           <Tab label={`EMAIL CHANGE REQUESTS (${emailChangeRequests.length}${emailChangePending > 0 ? ` · ${emailChangePending} Pending` : ''})`} />
+          <Tab label={`2FA RECOVERY REQUESTS (${mfaRecoveryRequests.length}${mfaRecoveryPending > 0 ? ` · ${mfaRecoveryPending} Pending` : ''})`} />
         </Tabs>
       </Box>
 
@@ -176,7 +247,7 @@ export const AdminRequestsPage: React.FC = () => {
                         <TableCell>
                           <Chip
                             label={req.requestType}
-                            color={req.requestType === 'EMAIL_CHANGE' ? 'secondary' : 'primary'}
+                            color={req.requestType === 'EMAIL_CHANGE' ? 'secondary' : req.requestType === 'MFA_RECOVERY_CODE_REISSUE' ? 'warning' : 'primary'}
                             size="small"
                             variant="outlined"
                           />
@@ -187,7 +258,7 @@ export const AdminRequestsPage: React.FC = () => {
                         <TableCell>
                           <Chip
                             label={req.status}
-                            color={req.status === 'APPROVED' ? 'success' : req.status === 'REJECTED' ? 'error' : 'warning'}
+                            color={req.status === 'APPROVED' || req.status === 'COMPLETED' ? 'success' : req.status?.startsWith('REJECTED') ? 'error' : req.status === 'WITHDRAWN' ? 'default' : 'warning'}
                             size="small"
                           />
                         </TableCell>
@@ -350,6 +421,68 @@ export const AdminRequestsPage: React.FC = () => {
         </Card>
       )}
 
+      {/* Tab 3: 2FA RECOVERY REQUESTS */}
+      {tabValue === 3 && (
+        <Card>
+          <CardContent sx={{ p: 0 }}>
+            {isLoading ? (
+              <Box sx={{ p: 3 }}><Skeleton variant="rectangular" height={250} /></Box>
+            ) : (
+              <TableContainer>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>REQUEST REF</TableCell>
+                      <TableCell>STAFF</TableCell>
+                      <TableCell>AGENCY / SCOPE</TableCell>
+                      <TableCell>REASON</TableCell>
+                      <TableCell>STATUS</TableCell>
+                      <TableCell align="right">ACTION</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {mfaRecoveryRequests.map((req) => (
+                      <TableRow key={req.id} hover>
+                        <TableCell sx={{ fontFamily: 'monospace', fontWeight: 'bold' }}>{req.requestRef}</TableCell>
+                        <TableCell sx={{ fontWeight: 'bold' }}>{req.targetUserName} ({req.currentEmail})</TableCell>
+                        <TableCell>{req.agencyName}</TableCell>
+                        <TableCell>{req.reason}</TableCell>
+                        <TableCell>
+                          <Chip
+                            label={req.status}
+                            color={req.status === 'COMPLETED' ? 'success' : req.status?.startsWith('REJECTED') ? 'error' : req.status === 'WITHDRAWN' ? 'default' : 'warning'}
+                            size="small"
+                          />
+                        </TableCell>
+                        <TableCell align="right">
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<EditIcon />}
+                            onClick={() => handleOpenManageModal(req)}
+                          >
+                            Manage
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {mfaRecoveryRequests.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            No 2FA recovery requests found.
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Comprehensive Manage Request Modal */}
       <Dialog open={manageModalOpen} onClose={() => setManageModalOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 'bold' }}>
@@ -382,7 +515,7 @@ export const AdminRequestsPage: React.FC = () => {
                 <Typography variant="body2">{selectedRequest.agencyName}</Typography>
               </Grid>
 
-              {selectedRequest.requestType === 'EMAIL_CHANGE' ? (
+              {selectedRequest.requestType === 'EMAIL_CHANGE' && (
                 <>
                   <Grid item xs={6}>
                     <Typography variant="caption" color="text.secondary">Current Login Email</Typography>
@@ -395,9 +528,11 @@ export const AdminRequestsPage: React.FC = () => {
                     </Typography>
                   </Grid>
                 </>
-              ) : (
+              )}
+
+              {selectedRequest.requestType === 'MFA_RECOVERY_CODE_REISSUE' && (
                 <Grid item xs={12}>
-                  <Typography variant="caption" color="text.secondary">Candidate Email</Typography>
+                  <Typography variant="caption" color="text.secondary">Staff Email</Typography>
                   <Typography variant="body2" fontFamily="monospace">{selectedRequest.currentEmail}</Typography>
                 </Grid>
               )}
@@ -416,7 +551,7 @@ export const AdminRequestsPage: React.FC = () => {
                 <Box sx={{ mt: 0.5 }}>
                   <Chip
                     label={selectedRequest.status}
-                    color={selectedRequest.status === 'APPROVED' ? 'success' : selectedRequest.status === 'REJECTED' ? 'error' : 'warning'}
+                    color={selectedRequest.status === 'APPROVED' || selectedRequest.status === 'COMPLETED' ? 'success' : selectedRequest.status?.startsWith('REJECTED') ? 'error' : selectedRequest.status === 'WITHDRAWN' ? 'default' : 'warning'}
                     size="small"
                   />
                 </Box>
@@ -426,39 +561,160 @@ export const AdminRequestsPage: React.FC = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setManageModalOpen(false)}>Close</Button>
-          {selectedRequest?.status === 'PENDING' && isSysAdmin && (
+          {selectedRequest && selectedRequest.status?.startsWith('PENDING') && (
             <>
-              <Button
-                variant="outlined"
-                color="error"
-                startIcon={<CancelIcon />}
-                onClick={() => setRejectDialogReq(selectedRequest)}
-              >
-                Reject
-              </Button>
-
-              {selectedRequest.requestType === 'EMAIL_CHANGE' ? (
+              {/* Context-sensitive actions based on request ownership */}
+              {isRequestOwner ? (
                 <Button
-                  variant="contained"
-                  color="success"
-                  startIcon={<CheckCircleIcon />}
-                  onClick={() => setEmailApproveConfirmReq(selectedRequest)}
+                  variant="outlined"
+                  color="warning"
+                  startIcon={<UndoIcon />}
+                  disabled={withdrawMutation.isPending}
+                  onClick={() => withdrawMutation.mutate(selectedRequest.id)}
                 >
-                  Approve
+                  Withdraw Request
                 </Button>
               ) : (
-                <Button
-                  variant="contained"
-                  color="success"
-                  startIcon={<CheckCircleIcon />}
-                  disabled={approveAgencyAccessMutation.isPending}
-                  onClick={() => approveAgencyAccessMutation.mutate(selectedRequest.id)}
-                >
-                  Approve
-                </Button>
+                <>
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    startIcon={<CancelIcon />}
+                    onClick={() => setRejectDialogReq(selectedRequest)}
+                  >
+                    Reject
+                  </Button>
+
+                  {selectedRequest.requestType === 'EMAIL_CHANGE' && isSysAdmin && (
+                    <Button
+                      variant="contained"
+                      color="success"
+                      startIcon={<CheckCircleIcon />}
+                      onClick={() => setEmailApproveConfirmReq(selectedRequest)}
+                    >
+                      Approve
+                    </Button>
+                  )}
+
+                  {selectedRequest.requestType === 'AGENCY_ADMIN_ACCESS' && isSysAdmin && (
+                    <Button
+                      variant="contained"
+                      color="success"
+                      startIcon={<CheckCircleIcon />}
+                      disabled={approveAgencyAccessMutation.isPending}
+                      onClick={() => approveAgencyAccessMutation.mutate(selectedRequest.id)}
+                    >
+                      Approve
+                    </Button>
+                  )}
+
+                  {selectedRequest.requestType === 'MFA_RECOVERY_CODE_REISSUE' && (
+                    <>
+                      {/* Agency Admin Verify & Forward ONLY if NOT System Admin */}
+                      {selectedRequest.status === 'PENDING_AGENCY_VERIFICATION' && !isSysAdmin && (
+                        <Button
+                          variant="contained"
+                          color="primary"
+                          startIcon={<VerifiedUserIcon />}
+                          onClick={() => setAgencyVerifyModalOpen(true)}
+                        >
+                          Verify & Forward
+                        </Button>
+                      )}
+
+                      {/* System Admin Approve Recovery */}
+                      {(selectedRequest.status === 'PENDING_SYSTEM_APPROVAL' || (selectedRequest.status === 'PENDING_AGENCY_VERIFICATION' && isSysAdmin)) && isSysAdmin && (
+                        <Button
+                          variant="contained"
+                          color="success"
+                          startIcon={<KeyIcon />}
+                          onClick={() => setSystemApproveRecoveryModalOpen(true)}
+                        >
+                          Approve Recovery
+                        </Button>
+                      )}
+                    </>
+                  )}
+                </>
               )}
             </>
           )}
+        </DialogActions>
+      </Dialog>
+
+      {/* Agency Verification Modal for 2FA Recovery */}
+      <Dialog open={agencyVerifyModalOpen} onClose={() => setAgencyVerifyModalOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle fontWeight="bold">VERIFY STAFF IDENTITY</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Verify staff member <strong>{selectedRequest?.targetUserName}</strong> using an auditable identity check before forwarding to System Administration.
+          </Typography>
+
+          <FormControl fullWidth size="small" margin="normal">
+            <InputLabel>Verification Method</InputLabel>
+            <Select
+              value={verificationMethod}
+              label="Verification Method"
+              onChange={(e) => setVerificationMethod(e.target.value)}
+            >
+              <MenuItem value="OFFICIAL_ID_CHECK">Official Agency ID Check</MenuItem>
+              <MenuItem value="IN_PERSON_VERIFICATION">In-Person Verification</MenuItem>
+              <MenuItem value="SECURITY_CALL">Recorded Security Verification Call</MenuItem>
+              <MenuItem value="DOCUMENT_VERIFICATION">Documentary Verification</MenuItem>
+            </Select>
+          </FormControl>
+
+          <TextField
+            fullWidth
+            multiline
+            rows={3}
+            label="Verification Notes"
+            placeholder="e.g. Verified official national ID and agency ID card..."
+            value={verificationNotes}
+            onChange={(e) => setVerificationNotes(e.target.value)}
+            margin="normal"
+            required
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAgencyVerifyModalOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="primary"
+            disabled={agencyVerifyRecoveryMutation.isPending || !verificationNotes.trim()}
+            onClick={() => agencyVerifyRecoveryMutation.mutate()}
+          >
+            {agencyVerifyRecoveryMutation.isPending ? 'Verifying...' : 'Verify & Forward'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* System Approval Modal for 2FA Recovery */}
+      <Dialog open={systemApproveRecoveryModalOpen} onClose={() => setSystemApproveRecoveryModalOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle fontWeight="bold">APPROVE 2FA RECOVERY?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Staff Member: <strong>{selectedRequest?.targetUserName}</strong> ({selectedRequest?.currentEmail})
+          </Typography>
+
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Approving this request authorizes a 24-hour single-use recovery code collection token for the requesting staff member.
+          </Alert>
+
+          <Alert severity="warning">
+            Recovery codes will <strong>never</strong> be displayed to administrators or included in notifications. Only the staff member can collect codes securely with password confirmation.
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSystemApproveRecoveryModalOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="success"
+            disabled={systemApproveRecoveryMutation.isPending}
+            onClick={() => systemApproveRecoveryMutation.mutate()}
+          >
+            {systemApproveRecoveryMutation.isPending ? 'Authorizing...' : 'Approve Recovery'}
+          </Button>
         </DialogActions>
       </Dialog>
 
@@ -520,11 +776,13 @@ export const AdminRequestsPage: React.FC = () => {
           <Button
             variant="contained"
             color="error"
-            disabled={!rejectionReason.trim() || rejectAgencyAccessMutation.isPending || rejectEmailChangeMutation.isPending}
+            disabled={!rejectionReason.trim() || rejectAgencyAccessMutation.isPending || rejectEmailChangeMutation.isPending || rejectRecoveryMutation.isPending}
             onClick={() => {
               if (!rejectDialogReq) return;
               if (rejectDialogReq.requestType === 'EMAIL_CHANGE') {
                 rejectEmailChangeMutation.mutate({ id: rejectDialogReq.id, reason: rejectionReason });
+              } else if (rejectDialogReq.requestType === 'MFA_RECOVERY_CODE_REISSUE') {
+                rejectRecoveryMutation.mutate({ id: rejectDialogReq.id, reason: rejectionReason });
               } else {
                 rejectAgencyAccessMutation.mutate({ id: rejectDialogReq.id, reason: rejectionReason });
               }

@@ -11,5 +11,18 @@ public record UpdateAdminUserRequest(
     UUID agencyId,
     String region,
     UUID stationId,
+    Integer priorityLevel,
     Set<String> roleCodes
-) {}
+) {
+    public UpdateAdminUserRequest(
+        String firstName,
+        String lastName,
+        String phoneNumber,
+        UUID agencyId,
+        String region,
+        UUID stationId,
+        Set<String> roleCodes
+    ) {
+        this(firstName, lastName, phoneNumber, agencyId, region, stationId, null, roleCodes);
+    }
+}

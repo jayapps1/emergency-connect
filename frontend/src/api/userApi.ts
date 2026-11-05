@@ -22,6 +22,7 @@ export const userApi = {
     agencyId?: string;
     region?: string;
     stationId?: string;
+    priorityLevel?: number | null;
     roleCodes?: string[];
   }): Promise<{ user: AdminUser; temporaryPassword: string }> => {
     const res = await apiClient.post<{ user: AdminUser; temporaryPassword: string }>('/api/v1/admin/users', data);
@@ -38,6 +39,7 @@ export const userApi = {
       agencyId?: string;
       region?: string;
       stationId?: string;
+      priorityLevel?: number | null;
       roleCodes?: string[];
     }
   ): Promise<AdminUser> => {
@@ -57,6 +59,31 @@ export const userApi = {
 
   resetPassword: async (userId: string): Promise<{ email: string; temporaryPassword: string }> => {
     const res = await apiClient.post<{ email: string; temporaryPassword: string }>(`/api/v1/admin/users/${userId}/reset-password`);
+    return res.data;
+  },
+
+  transferAgencyLeadership: async (data: {
+    recipientUserId: string;
+    password: string;
+    reason?: string;
+  }): Promise<AdminUser> => {
+    const res = await apiClient.post<AdminUser>('/api/v1/admin/users/transfer-leadership', data);
+    return res.data;
+  },
+
+  transferNationalLeadership: async (data: {
+    recipientUserId: string;
+    password: string;
+    reason?: string;
+  }): Promise<AdminUser> => {
+    const res = await apiClient.post<AdminUser>('/api/v1/admin/users/transfer-national-leadership', data);
+    return res.data;
+  },
+
+  configureAgencyPriorities: async (agencyId: string, priorityMap: Record<string, number>): Promise<AdminUser[]> => {
+    const res = await apiClient.post<AdminUser[]>('/api/v1/admin/users/configure-agency-priorities', priorityMap, {
+      params: { agencyId },
+    });
     return res.data;
   },
 };

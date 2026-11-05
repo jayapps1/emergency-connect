@@ -10,7 +10,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/admin/cache")
-@PreAuthorize("hasRole('ROLE_SYSTEM_ADMIN')")
+@PreAuthorize("(hasRole('SYSTEM_ADMIN') or hasRole('ROLE_SYSTEM_ADMIN')) and hasAuthority('SYSTEM_SETTINGS_MANAGE')")
 public class CacheManagementController {
 
     private final CacheManagementService cacheService;

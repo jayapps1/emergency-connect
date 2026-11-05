@@ -4,13 +4,17 @@ import com.gec.backend.admin.dto.*;
 import com.gec.backend.admin.entity.*;
 import com.gec.backend.admin.repository.*;
 import com.gec.backend.admin.security.AdminScopeService;
+import com.gec.backend.admin.security.AdminUserPrincipal;
 import com.gec.backend.agency.entity.AgencyEntity;
 import com.gec.backend.agency.repository.AgencyRepository;
+import com.gec.backend.messaging.service.StaffNotificationService;
 import com.gec.backend.common.exception.ResourceNotFoundException;
 import com.gec.backend.station.entity.StationEntity;
 import com.gec.backend.station.repository.StationRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +37,7 @@ public class AdminUserService {
     private final StationRepository stationRepository;
     private final PasswordEncoder passwordEncoder;
     private final AdminScopeService scopeService;
+    private final StaffNotificationService notificationService;
     private final AuditService auditService;
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -43,6 +48,7 @@ public class AdminUserService {
         StationRepository stationRepository,
         PasswordEncoder passwordEncoder,
         AdminScopeService scopeService,
+        StaffNotificationService notificationService,
         AuditService auditService
     ) {
         this.userRepository = userRepository;
@@ -51,6 +57,7 @@ public class AdminUserService {
         this.stationRepository = stationRepository;
         this.passwordEncoder = passwordEncoder;
         this.scopeService = scopeService;
+        this.notificationService = notificationService;
         this.auditService = auditService;
     }
 
@@ -82,9 +89,20 @@ public class AdminUserService {
             throw new IllegalArgumentException("User with email already exists: " + request.email());
         }
 
+        AdminUserPrincipal principal = scopeService.getCurrentPrincipal();
+        AdminUserEntity actor = userRepository.findById(principal.getId()).orElse(null);
+
         UUID targetAgencyId = request.agencyId();
         if (!scopeService.isSystemAdmin()) {
-            targetAgencyId = scopeService.getCurrentPrincipal().getAgencyId();
+            targetAgencyId = principal.getAgencyId();
+        }
+
+        Integer requestedPriority = request.priorityLevel();
+        if (actor != null && !scopeService.isSystemAdmin() && requestedPriority != null) {
+            int actorPriority = actor.getPriorityLevel() != null ? actor.getPriorityLevel() : 999;
+            if (requestedPriority <= actorPriority) {
+                throw new IllegalArgumentException("PRIORITY_ESCALATION_DENIED: You cannot assign a priority level equal to or higher than your own priority (" + actorPriority + ").");
+            }
         }
 
         Set<RoleEntity> roles = new HashSet<>();
@@ -99,7 +117,7 @@ public class AdminUserService {
             }
         }
 
-        UUID actorId = scopeService.getCurrentPrincipal().getId();
+        UUID actorId = principal.getId();
         UUID userId = UUID.randomUUID();
         String tempPassword = generateTempPassword();
 
@@ -113,6 +131,7 @@ public class AdminUserService {
         user.setAgencyId(targetAgencyId);
         user.setRegion(request.region());
         user.setStationId(request.stationId());
+        user.setPriorityLevel(requestedPriority);
         user.setActive(true);
         user.setMustChangePassword(true);
         user.setTemporaryPasswordIssuedAt(LocalDateTime.now());
@@ -121,7 +140,7 @@ public class AdminUserService {
 
         userRepository.save(user);
 
-        auditService.logAction(actorId, "ADMIN_USER_CREATED", "ADMIN_USER", userId, targetAgencyId, "Created admin user " + user.getEmail(), null, null);
+        auditService.logAction(actorId, "ADMIN_USER_CREATED", "ADMIN_USER", userId, targetAgencyId, "Created admin user " + user.getEmail() + (requestedPriority != null ? " with Priority " + requestedPriority : " (Unassigned Priority)"), null, null);
 
         return new CreateUserResponse(mapToResponse(user), tempPassword);
     }
@@ -131,8 +150,12 @@ public class AdminUserService {
         AdminUserEntity user = userRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException("User not found: " + id));
 
-        if (user.getAgencyId() != null && !scopeService.isSystemAdmin()) {
-            scopeService.validateAgencyScope(user.getAgencyId());
+        AdminUserPrincipal principal = scopeService.getCurrentPrincipal();
+        AdminUserEntity actor = userRepository.findById(principal.getId()).orElse(null);
+
+        Integer newPriority = request.priorityLevel();
+        if (actor != null) {
+            scopeService.validateAccountManagementAuthority(actor, user, "UPDATE", newPriority);
         }
 
         user.setFirstName(request.firstName());
@@ -144,6 +167,8 @@ public class AdminUserService {
         }
         user.setRegion(request.region());
         user.setStationId(request.stationId());
+
+        user.setPriorityLevel(newPriority);
 
         if (request.roleCodes() != null && !request.roleCodes().isEmpty()) {
             Set<RoleEntity> roles = new HashSet<>();
@@ -160,8 +185,8 @@ public class AdminUserService {
 
         user = userRepository.save(user);
 
-        UUID actorId = scopeService.getCurrentPrincipal().getId();
-        auditService.logAction(actorId, "ADMIN_USER_UPDATED", "ADMIN_USER", id, user.getAgencyId(), "Updated admin user " + user.getEmail(), null, null);
+        UUID actorId = principal.getId();
+        auditService.logAction(actorId, "ADMIN_USER_UPDATED", "ADMIN_USER", id, user.getAgencyId(), "Updated admin user " + user.getEmail() + "; Priority=" + user.getPriorityLevel(), null, null);
 
         return mapToResponse(user);
     }
@@ -171,14 +196,17 @@ public class AdminUserService {
         AdminUserEntity user = userRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException("User not found: " + id));
 
-        if (user.getAgencyId() != null) {
-            scopeService.validateAgencyScope(user.getAgencyId());
+        AdminUserPrincipal principal = scopeService.getCurrentPrincipal();
+        AdminUserEntity actor = userRepository.findById(principal.getId()).orElse(null);
+
+        if (actor != null) {
+            scopeService.validateAccountManagementAuthority(actor, user, "DEACTIVATE", null);
         }
 
         user.setActive(false);
         userRepository.save(user);
 
-        UUID actorId = scopeService.getCurrentPrincipal().getId();
+        UUID actorId = principal.getId();
         auditService.logAction(actorId, "ADMIN_USER_DEACTIVATED", "ADMIN_USER", id, user.getAgencyId(), "Deactivated admin user " + user.getEmail(), null, null);
 
         return mapToResponse(user);
@@ -189,8 +217,11 @@ public class AdminUserService {
         AdminUserEntity user = userRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException("User not found: " + id));
 
-        if (user.getAgencyId() != null) {
-            scopeService.validateAgencyScope(user.getAgencyId());
+        AdminUserPrincipal principal = scopeService.getCurrentPrincipal();
+        AdminUserEntity actor = userRepository.findById(principal.getId()).orElse(null);
+
+        if (actor != null) {
+            scopeService.validateAccountManagementAuthority(actor, user, "REACTIVATE", null);
         }
 
         user.setActive(true);
@@ -198,7 +229,7 @@ public class AdminUserService {
         user.setFailedLoginAttempts(0);
         userRepository.save(user);
 
-        UUID actorId = scopeService.getCurrentPrincipal().getId();
+        UUID actorId = principal.getId();
         auditService.logAction(actorId, "ADMIN_USER_REACTIVATED", "ADMIN_USER", id, user.getAgencyId(), "Reactivated admin user " + user.getEmail(), null, null);
 
         return mapToResponse(user);
@@ -209,8 +240,11 @@ public class AdminUserService {
         AdminUserEntity user = userRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException("User not found: " + id));
 
-        if (user.getAgencyId() != null) {
-            scopeService.validateAgencyScope(user.getAgencyId());
+        AdminUserPrincipal principal = scopeService.getCurrentPrincipal();
+        AdminUserEntity actor = userRepository.findById(principal.getId()).orElse(null);
+
+        if (actor != null) {
+            scopeService.validateAccountManagementAuthority(actor, user, "RESET_PASSWORD", null);
         }
 
         String tempPassword = generateTempPassword();
@@ -221,13 +255,167 @@ public class AdminUserService {
         user.setLocked(false);
         userRepository.save(user);
 
-        UUID actorId = scopeService.getCurrentPrincipal().getId();
+        UUID actorId = principal.getId();
         auditService.logAction(actorId, "ADMIN_USER_PASSWORD_RESET", "ADMIN_USER", id, user.getAgencyId(), "Reset password for user " + user.getEmail(), null, null);
 
         Map<String, String> response = new HashMap<>();
         response.put("email", user.getEmail());
         response.put("temporaryPassword", tempPassword);
         return response;
+    }
+
+    @Transactional
+    public AdminUserResponse transferAgencyLeadership(UUID recipientUserId, String password, String reason) {
+        AdminUserPrincipal principal = scopeService.getCurrentPrincipal();
+        AdminUserEntity actor = userRepository.findById(principal.getId())
+            .orElseThrow(() -> new ResourceNotFoundException("Actor user not found"));
+
+        if (password == null || password.isBlank() || !passwordEncoder.matches(password, actor.getPasswordHash())) {
+            throw new BadCredentialsException("Current password is incorrect. Unable to transfer agency leadership.");
+        }
+
+        AdminUserEntity recipient = userRepository.findById(recipientUserId)
+            .orElseThrow(() -> new ResourceNotFoundException("Recipient user not found: " + recipientUserId));
+
+        if (!recipient.isActive()) {
+            throw new IllegalStateException("RECIPIENT_INACTIVE: Cannot transfer agency leadership to an inactive account.");
+        }
+
+        boolean actorIsSysAdmin = scopeService.isSystemAdmin();
+        UUID targetAgencyId = recipient.getAgencyId();
+
+        if (targetAgencyId == null) {
+            throw new IllegalStateException("Recipient account does not belong to an agency.");
+        }
+
+        if (!actorIsSysAdmin) {
+            scopeService.validateAgencyScope(targetAgencyId);
+            int actorPriority = actor.getPriorityLevel() != null ? actor.getPriorityLevel() : 999;
+            if (actorPriority != 1) {
+                throw new AccessDeniedException("LEADERSHIP_TRANSFER_DENIED: Only the current Priority 1 Agency Lead or System Administration can transfer agency leadership.");
+            }
+        }
+
+        boolean isRecipientAgencyAdmin = recipient.getRoles() != null && recipient.getRoles().stream()
+            .map(RoleEntity::getCode).anyMatch(c -> "AGENCY_ADMIN".equalsIgnoreCase(c) || "ROLE_AGENCY_ADMIN".equalsIgnoreCase(c));
+
+        if (!isRecipientAgencyAdmin) {
+            throw new IllegalArgumentException("RECIPIENT_NOT_AGENCY_ADMIN: Leadership can only be transferred to an active Agency Administrator.");
+        }
+
+        List<AdminUserEntity> agencyUsers = userRepository.findByAgencyId(targetAgencyId);
+        for (AdminUserEntity u : agencyUsers) {
+            if (u.getId().equals(recipientUserId)) {
+                u.setPriorityLevel(1);
+            } else if (u.getPriorityLevel() != null && u.getPriorityLevel() == 1) {
+                u.setPriorityLevel(2);
+            }
+            userRepository.save(u);
+        }
+
+        auditService.logAction(actor.getId(), "AGENCY_LEADERSHIP_TRANSFERRED", "AGENCY", targetAgencyId, targetAgencyId,
+            "Transferred agency leadership to " + recipient.getEmail() + ". Reason: " + (reason != null ? reason : "Leadership handover"), null, null);
+
+        notificationService.sendNotification(recipientUserId, "Agency Leadership Transferred",
+            "You have been designated as Priority 1 (Agency Lead) for your agency.", "LEADERSHIP_TRANSFER", "/my-requests");
+
+        if (!actor.getId().equals(recipientUserId)) {
+            notificationService.sendNotification(actor.getId(), "Agency Leadership Transferred",
+                "Agency leadership has been transferred successfully to " + recipient.getFirstName() + " " + recipient.getLastName() + ".", "LEADERSHIP_TRANSFER", "/my-requests");
+        }
+
+        return mapToResponse(recipient);
+    }
+
+    @Transactional
+    public AdminUserResponse transferNationalLeadership(UUID recipientUserId, String password, String reason) {
+        scopeService.checkSystemAdminAccess();
+
+        AdminUserPrincipal principal = scopeService.getCurrentPrincipal();
+        AdminUserEntity actor = userRepository.findById(principal.getId())
+            .orElseThrow(() -> new ResourceNotFoundException("Actor user not found"));
+
+        int actorPriority = actor.getPriorityLevel() != null ? actor.getPriorityLevel() : 999;
+        if (actorPriority != 1) {
+            throw new AccessDeniedException("NATIONAL_LEADERSHIP_TRANSFER_DENIED: Only the current National System Admin Lead (Priority 1) can transfer national leadership.");
+        }
+
+        if (password == null || password.isBlank() || !passwordEncoder.matches(password, actor.getPasswordHash())) {
+            throw new BadCredentialsException("Current password is incorrect. Unable to transfer national leadership.");
+        }
+
+        AdminUserEntity recipient = userRepository.findById(recipientUserId)
+            .orElseThrow(() -> new ResourceNotFoundException("Recipient user not found: " + recipientUserId));
+
+        if (!recipient.isActive()) {
+            throw new IllegalStateException("RECIPIENT_INACTIVE: Cannot transfer national leadership to an inactive account.");
+        }
+
+        boolean isRecipientSysAdmin = recipient.getRoles() != null && recipient.getRoles().stream()
+            .map(RoleEntity::getCode).anyMatch(c -> "SYSTEM_ADMIN".equalsIgnoreCase(c) || "ROLE_SYSTEM_ADMIN".equalsIgnoreCase(c));
+
+        if (!isRecipientSysAdmin) {
+            throw new IllegalArgumentException("RECIPIENT_NOT_SYSTEM_ADMIN: National leadership can only be transferred to an active System Administrator.");
+        }
+
+        List<AdminUserEntity> allUsers = userRepository.findAll();
+        for (AdminUserEntity u : allUsers) {
+            boolean isSysAdmin = u.getRoles() != null && u.getRoles().stream()
+                .map(RoleEntity::getCode).anyMatch(c -> "SYSTEM_ADMIN".equalsIgnoreCase(c) || "ROLE_SYSTEM_ADMIN".equalsIgnoreCase(c));
+            if (isSysAdmin) {
+                if (u.getId().equals(recipientUserId)) {
+                    u.setPriorityLevel(1);
+                } else if (u.getPriorityLevel() != null && u.getPriorityLevel() == 1) {
+                    u.setPriorityLevel(2);
+                }
+                userRepository.save(u);
+            }
+        }
+
+        auditService.logAction(actor.getId(), "NATIONAL_LEADERSHIP_TRANSFERRED", "SYSTEM_ADMIN", recipientUserId, null,
+            "Transferred national System Admin leadership to " + recipient.getEmail() + ". Reason: " + (reason != null ? reason : "National handover"), null, null);
+
+        notificationService.sendNotification(recipientUserId, "National Leadership Transferred",
+            "You have been designated as Priority 1 (National Lead) for System Administration.", "LEADERSHIP_TRANSFER", "/my-requests");
+
+        return mapToResponse(recipient);
+    }
+
+    @Transactional
+    public List<AdminUserResponse> configureAgencyPriorities(UUID agencyId, Map<UUID, Integer> priorityMap) {
+        scopeService.checkSystemAdminAccess();
+
+        if (priorityMap == null || priorityMap.isEmpty()) {
+            throw new IllegalArgumentException("Priority assignments map cannot be empty.");
+        }
+
+        long priority1Count = priorityMap.values().stream().filter(p -> p != null && p == 1).count();
+        if (priority1Count > 1) {
+            throw new IllegalArgumentException("ONLY_ONE_PRIORITY_1_ALLOWED: An agency can have at most one Priority 1 (Agency Lead) administrator.");
+        }
+
+        List<AdminUserResponse> updatedUsers = new ArrayList<>();
+        for (Map.Entry<UUID, Integer> entry : priorityMap.entrySet()) {
+            UUID uId = entry.getKey();
+            Integer level = entry.getValue();
+
+            AdminUserEntity user = userRepository.findById(uId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + uId));
+
+            if (!agencyId.equals(user.getAgencyId())) {
+                throw new IllegalArgumentException("User " + user.getEmail() + " does not belong to agency " + agencyId);
+            }
+
+            user.setPriorityLevel(level);
+            userRepository.save(user);
+            updatedUsers.add(mapToResponse(user));
+        }
+
+        UUID sysAdminId = scopeService.getCurrentPrincipal().getId();
+        auditService.logAction(sysAdminId, "AGENCY_PRIORITIES_CONFIGURED", "AGENCY", agencyId, agencyId,
+            "Configured staff priority hierarchy for agency " + agencyId, null, null);
+
+        return updatedUsers;
     }
 
     private AdminUserResponse mapToResponse(AdminUserEntity user) {
@@ -254,6 +442,7 @@ public class AdminUserService {
             user.getRegion(),
             user.getStationId(),
             stationName,
+            user.getPriorityLevel(),
             user.isActive(),
             user.isLocked(),
             user.isMustChangePassword(),

@@ -20,6 +20,12 @@ public record UserManagementRequestResponse(
     UUID reviewedBy,
     LocalDateTime reviewedAt,
     String rejectionReason,
+    UUID agencyVerifiedBy,
+    LocalDateTime agencyVerifiedAt,
+    String agencyVerificationMethod,
+    String agencyVerificationNotes,
+    LocalDateTime collectionTokenExpiresAt,
+    LocalDateTime collectedAt,
     LocalDateTime createdAt
 ) {
     public UserManagementRequestResponse(
@@ -27,6 +33,7 @@ public record UserManagementRequestResponse(
         String requestType,
         UUID targetUserId,
         String targetUserEmail,
+        String requestedEmail,
         String targetUserName,
         UUID agencyId,
         String agencyName,
@@ -39,6 +46,6 @@ public record UserManagementRequestResponse(
         String rejectionReason,
         LocalDateTime createdAt
     ) {
-        this(id, requestType, targetUserId, targetUserEmail, null, targetUserName, agencyId, agencyName, reason, effectiveDate, status, requestedBy, reviewedBy, reviewedAt, rejectionReason, createdAt);
+        this(id, requestType, targetUserId, targetUserEmail, requestedEmail, targetUserName, agencyId, agencyName, reason, effectiveDate, status, requestedBy, reviewedBy, reviewedAt, rejectionReason, null, null, null, null, null, null, createdAt);
     }
 }

@@ -57,6 +57,7 @@ export interface AdminUser {
   region?: string;
   stationId?: string;
   stationName?: string;
+  priorityLevel?: number;
   active: boolean;
   locked: boolean;
   mustChangePassword?: boolean;

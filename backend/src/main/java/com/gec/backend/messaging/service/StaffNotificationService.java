@@ -6,10 +6,12 @@ import com.gec.backend.messaging.entity.StaffNotificationEntity;
 import com.gec.backend.messaging.repository.StaffNotificationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -30,6 +32,52 @@ public class StaffNotificationService {
     ) {
         this.userRepository = userRepository;
         this.notificationRepository = notificationRepository;
+    }
+
+    @Transactional
+    public StaffNotificationEntity sendNotification(UUID userId, String title, String body, String type, String actionUrl) {
+        StaffNotificationEntity entity = new StaffNotificationEntity(
+            UUID.randomUUID(), userId, null, null, type, title, body, actionUrl
+        );
+        return notificationRepository.save(entity);
+    }
+
+    public List<StaffNotificationEntity> getUserNotifications(UUID userId) {
+        return notificationRepository.findByStaffUserIdOrderByCreatedAtDesc(userId, Pageable.ofSize(100)).getContent();
+    }
+
+    public long getUnreadCount(UUID userId) {
+        return notificationRepository.countByStaffUserIdAndReadAtIsNull(userId);
+    }
+
+    @Transactional
+    public void markAsRead(UUID notificationId, UUID userId) {
+        notificationRepository.findById(notificationId).ifPresent(n -> {
+            if (n.getStaffUserId().equals(userId) && n.getReadAt() == null) {
+                n.setReadAt(LocalDateTime.now());
+                notificationRepository.save(n);
+            }
+        });
+    }
+
+    @Transactional
+    public void markAllAsRead(UUID staffUserId) {
+        List<StaffNotificationEntity> unreadList = notificationRepository.findByStaffUserIdAndReadAtIsNull(staffUserId);
+        LocalDateTime now = LocalDateTime.now();
+        for (StaffNotificationEntity n : unreadList) {
+            n.setReadAt(now);
+            notificationRepository.save(n);
+        }
+    }
+
+    @Transactional
+    public void deleteNotification(UUID notificationId, UUID staffUserId) {
+        notificationRepository.deleteByIdAndStaffUserId(notificationId, staffUserId);
+    }
+
+    @Transactional
+    public void deleteAllRead(UUID staffUserId) {
+        notificationRepository.deleteByStaffUserIdAndReadAtIsNotNull(staffUserId);
     }
 
     @Async

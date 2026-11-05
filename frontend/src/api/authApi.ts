@@ -15,6 +15,21 @@ export interface StaffEmailHistoryItem {
   changedAt: string;
 }
 
+export interface StaffNotificationItem {
+  id: string;
+  staffUserId?: string;
+  userId?: string;
+  title: string;
+  body?: string;
+  message?: string;
+  eventType?: string;
+  notificationType?: string;
+  readAt?: string;
+  readState?: boolean;
+  actionUrl?: string;
+  createdAt: string;
+}
+
 export const authApi = {
   login: async (credentials: { email: string; password: string }): Promise<LoginResponse> => {
     const res = await apiClient.post<LoginResponse>('/api/v1/admin/auth/login', credentials);
@@ -95,9 +110,35 @@ export const authApi = {
     return res.data;
   },
 
+  generateRecoveryCodesDirect: async (data: { verificationToken: string }): Promise<string[]> => {
+    const res = await apiClient.post<string[]>('/api/v1/admin/auth/generate-recovery-codes-direct', data);
+    return res.data;
+  },
+
   getEmailHistory: async (): Promise<StaffEmailHistoryItem[]> => {
     const res = await apiClient.get<StaffEmailHistoryItem[]>('/api/v1/admin/auth/email-history');
     return res.data;
+  },
+
+  getNotifications: async (): Promise<StaffNotificationItem[]> => {
+    const res = await apiClient.get<StaffNotificationItem[]>('/api/v1/admin/auth/notifications');
+    return res.data;
+  },
+
+  markNotificationRead: async (id: string): Promise<void> => {
+    await apiClient.put(`/api/v1/admin/auth/notifications/${id}/read`);
+  },
+
+  markAllNotificationsRead: async (): Promise<void> => {
+    await apiClient.put('/api/v1/admin/auth/notifications/read-all');
+  },
+
+  deleteNotification: async (id: string): Promise<void> => {
+    await apiClient.delete(`/api/v1/admin/auth/notifications/${id}`);
+  },
+
+  deleteAllReadNotifications: async (): Promise<void> => {
+    await apiClient.delete('/api/v1/admin/auth/notifications/read');
   },
 
   completeEmailChange: async (currentPassword: string): Promise<LoginResponse> => {

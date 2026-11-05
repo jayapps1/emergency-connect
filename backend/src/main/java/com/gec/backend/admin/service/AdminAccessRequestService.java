@@ -2,7 +2,9 @@ package com.gec.backend.admin.service;
 
 import com.gec.backend.admin.dto.*;
 import com.gec.backend.admin.entity.AdminAccessRequestEntity;
+import com.gec.backend.admin.entity.AdminUserEntity;
 import com.gec.backend.admin.repository.AdminAccessRequestRepository;
+import com.gec.backend.admin.repository.AdminUserRepository;
 import com.gec.backend.admin.security.AdminScopeService;
 import com.gec.backend.agency.entity.AgencyEntity;
 import com.gec.backend.agency.repository.AgencyRepository;
@@ -21,6 +23,7 @@ public class AdminAccessRequestService {
 
     private final AdminAccessRequestRepository requestRepository;
     private final UserManagementRequestService userRequestService;
+    private final AdminUserRepository userRepository;
     private final AgencyRepository agencyRepository;
     private final AdminUserService userService;
     private final AdminScopeService scopeService;
@@ -29,6 +32,7 @@ public class AdminAccessRequestService {
     public AdminAccessRequestService(
         AdminAccessRequestRepository requestRepository,
         UserManagementRequestService userRequestService,
+        AdminUserRepository userRepository,
         AgencyRepository agencyRepository,
         AdminUserService userService,
         AdminScopeService scopeService,
@@ -36,6 +40,7 @@ public class AdminAccessRequestService {
     ) {
         this.requestRepository = requestRepository;
         this.userRequestService = userRequestService;
+        this.userRepository = userRepository;
         this.agencyRepository = agencyRepository;
         this.userService = userService;
         this.scopeService = scopeService;
@@ -51,7 +56,7 @@ public class AdminAccessRequestService {
         }
     }
 
-    // Aggregates both Agency Admin Access Requests and Staff Email Change Requests into a single Centralized Request Management Center summary.
+    // Aggregates Agency Admin Access Requests, Staff Email Change Requests, and 2FA Recovery Code Requests into a Centralized Request Management Center summary.
     public CentralizedRequestSummaryDto getCentralizedSummary() {
         List<AdminAccessRequestResponse> agencyAccessRequests = getRequests();
         List<UserManagementRequestResponse> userManagementRequests = userRequestService.getRequests();
@@ -77,13 +82,19 @@ public class AdminAccessRequestService {
         }
 
         for (UserManagementRequestResponse userReq : userManagementRequests) {
+            AdminUserEntity targetUser = userRepository.findById(userReq.targetUserId()).orElse(null);
+            String roleCode = "STAFF_ACCOUNT";
+            if (targetUser != null && targetUser.getRoles() != null && !targetUser.getRoles().isEmpty()) {
+                roleCode = targetUser.getRoles().iterator().next().getCode();
+            }
+
             allItems.add(new CentralizedRequestItemDto(
                 userReq.id(),
                 "REQ-" + userReq.id().toString().substring(0, 8).toUpperCase(),
                 userReq.requestType(),
                 userReq.targetUserName(),
                 userReq.targetUserName(),
-                "EMAIL_CHANGE".equalsIgnoreCase(userReq.requestType()) ? "STAFF_ACCOUNT" : "USER",
+                roleCode,
                 userReq.agencyName() != null ? userReq.agencyName() : "Agency Scope",
                 userReq.targetUserEmail(),
                 userReq.requestedEmail(),
@@ -93,30 +104,37 @@ public class AdminAccessRequestService {
             ));
         }
 
-        // Default Order: PENDING first, then newest requestedAt first
+        // Default Order: PENDING or PENDING_* first, then newest requestedAt first
         allItems.sort((a, b) -> {
-            boolean aPending = "PENDING".equalsIgnoreCase(a.status());
-            boolean bPending = "PENDING".equalsIgnoreCase(b.status());
+            boolean aPending = a.status() != null && a.status().startsWith("PENDING");
+            boolean bPending = b.status() != null && b.status().startsWith("PENDING");
             if (aPending && !bPending) return -1;
             if (!aPending && bPending) return 1;
             return b.requestedAt().compareTo(a.requestedAt());
         });
 
-        long agencyAccessPendingCount = agencyAccessRequests.stream().filter(r -> "PENDING".equalsIgnoreCase(r.status())).count();
-        long emailChangePendingCount = userManagementRequests.stream().filter(r -> "PENDING".equalsIgnoreCase(r.status())).count();
-        long totalPendingCount = agencyAccessPendingCount + emailChangePendingCount;
-
         List<UserManagementRequestResponse> emailChangeOnlyRequests = userManagementRequests.stream()
             .filter(r -> "EMAIL_CHANGE".equalsIgnoreCase(r.requestType()))
             .toList();
+
+        List<UserManagementRequestResponse> mfaRecoveryOnlyRequests = userManagementRequests.stream()
+            .filter(r -> "MFA_RECOVERY_CODE_REISSUE".equalsIgnoreCase(r.requestType()))
+            .toList();
+
+        long agencyAccessPendingCount = agencyAccessRequests.stream().filter(r -> "PENDING".equalsIgnoreCase(r.status())).count();
+        long emailChangePendingCount = userManagementRequests.stream().filter(r -> "EMAIL_CHANGE".equalsIgnoreCase(r.requestType()) && "PENDING".equalsIgnoreCase(r.status())).count();
+        long mfaRecoveryPendingCount = mfaRecoveryOnlyRequests.stream().filter(r -> r.status() != null && r.status().startsWith("PENDING")).count();
+        long totalPendingCount = agencyAccessPendingCount + emailChangePendingCount + mfaRecoveryPendingCount;
 
         return new CentralizedRequestSummaryDto(
             allItems,
             agencyAccessRequests,
             emailChangeOnlyRequests,
+            mfaRecoveryOnlyRequests,
             totalPendingCount,
             agencyAccessPendingCount,
-            emailChangePendingCount
+            emailChangePendingCount,
+            mfaRecoveryPendingCount
         );
     }
 

@@ -28,10 +28,12 @@ frontend/.env.*.local
 !frontend/.env.example
 
 # ==================================================
-# Local Uploads / Attachments
+# Local Uploads / Attachments / Backups
 # ==================================================
 uploads/
 backend/uploads/
+backups/
+backend/backups/
 
 # ==================================================
 # IntelliJ / IDE

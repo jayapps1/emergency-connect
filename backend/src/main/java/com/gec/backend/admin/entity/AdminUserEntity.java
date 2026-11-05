@@ -36,6 +36,9 @@ public class AdminUserEntity {
     @Column(name = "station_id")
     private UUID stationId;
 
+    @Column(name = "priority_level")
+    private Integer priorityLevel;
+
     @Column(nullable = false)
     private boolean active = true;
 
@@ -106,6 +109,8 @@ public class AdminUserEntity {
     public void setRegion(String region) { this.region = region; }
     public UUID getStationId() { return stationId; }
     public void setStationId(UUID stationId) { this.stationId = stationId; }
+    public Integer getPriorityLevel() { return priorityLevel; }
+    public void setPriorityLevel(Integer priorityLevel) { this.priorityLevel = priorityLevel; }
     public boolean isActive() { return active; }
     public void setActive(boolean active) { this.active = active; }
     public boolean isLocked() { return locked; }

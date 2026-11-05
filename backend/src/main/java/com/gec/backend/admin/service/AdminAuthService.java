@@ -4,6 +4,11 @@ import com.gec.backend.admin.dto.*;
 import com.gec.backend.admin.entity.*;
 import com.gec.backend.admin.repository.*;
 import com.gec.backend.admin.security.*;
+import com.gec.backend.agency.entity.AgencyEntity;
+import com.gec.backend.agency.repository.AgencyRepository;
+import com.gec.backend.messaging.service.StaffNotificationService;
+import com.gec.backend.station.entity.StationEntity;
+import com.gec.backend.station.repository.StationRepository;
 import com.gec.backend.common.exception.ResourceNotFoundException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -43,10 +48,13 @@ public class AdminAuthService {
     private final AdminRefreshTokenRepository refreshTokenRepository;
     private final UserManagementRequestRepository requestRepository;
     private final StaffEmailHistoryRepository emailHistoryRepository;
+    private final AgencyRepository agencyRepository;
+    private final StationRepository stationRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider tokenProvider;
     private final MfaService mfaService;
     private final AdminScopeService scopeService;
+    private final StaffNotificationService notificationService;
     private final AuditService auditService;
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -55,20 +63,26 @@ public class AdminAuthService {
         AdminRefreshTokenRepository refreshTokenRepository,
         UserManagementRequestRepository requestRepository,
         StaffEmailHistoryRepository emailHistoryRepository,
+        AgencyRepository agencyRepository,
+        StationRepository stationRepository,
         PasswordEncoder passwordEncoder,
         JwtTokenProvider tokenProvider,
         MfaService mfaService,
         AdminScopeService scopeService,
+        StaffNotificationService notificationService,
         AuditService auditService
     ) {
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.requestRepository = requestRepository;
         this.emailHistoryRepository = emailHistoryRepository;
+        this.agencyRepository = agencyRepository;
+        this.stationRepository = stationRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenProvider = tokenProvider;
         this.mfaService = mfaService;
         this.scopeService = scopeService;
+        this.notificationService = notificationService;
         this.auditService = auditService;
     }
 
@@ -238,6 +252,44 @@ public class AdminAuthService {
         );
     }
 
+    // Direct self-service recovery code generation for System Administration
+    @Transactional
+    public List<String> generateRecoveryCodesDirect(UUID sysAdminId, String verificationToken) {
+        if (!scopeService.isSystemAdmin()) {
+            throw new IllegalStateException("Access restricted to System Administrators.");
+        }
+
+        if (verificationToken == null || !verificationTokenRegistry.containsKey(verificationToken)) {
+            throw new BadCredentialsException("Invalid or missing password verification token. Please verify current password first.");
+        }
+
+        VerificationTokenRecord record = verificationTokenRegistry.get(verificationToken);
+        if (record.used() || record.expiresAt().isBefore(LocalDateTime.now()) || !record.userId().equals(sysAdminId)) {
+            verificationTokenRegistry.remove(verificationToken);
+            throw new BadCredentialsException("Verification token has expired or is invalid. Please confirm current password again.");
+        }
+
+        // Consume verification token (single-use)
+        verificationTokenRegistry.remove(verificationToken);
+
+        // Generate 10 new recovery codes and store hashes in DB
+        List<String> plaintextCodes = mfaService.generateAndSaveRecoveryCodes("ADMIN", sysAdminId);
+
+        // Persist notification for System Admin (NO codes in notification text)
+        notificationService.sendNotification(
+            sysAdminId,
+            "Recovery Codes Regenerated",
+            "Your 2FA recovery codes were regenerated successfully. If you did not perform this action, contact security administration immediately.",
+            "SECURITY_ALERT",
+            "/profile"
+        );
+
+        auditService.logAction(sysAdminId, "SYSTEM_ADMIN_RECOVERY_CODES_REISSUED", "ADMIN_USER", sysAdminId, null,
+            "System Admin directly regenerated 2FA recovery codes after password verification", null, null);
+
+        return plaintextCodes;
+    }
+
     // Allows System Administrators to maintain their own login email directly while preserving stronger re-authentication and audit controls.
     @Transactional
     public LoginResponse changeEmailDirect(UUID userId, String verificationToken, String newEmail, String confirmNewEmail) {
@@ -252,7 +304,7 @@ public class AdminAuthService {
         }
 
         // Consume verification token immediately (single-use)
-        verificationTokenRegistry.put(verificationToken, new VerificationTokenRecord(record.token(), record.userId(), record.expiresAt(), true));
+        verificationTokenRegistry.remove(verificationToken);
 
         if (newEmail == null || newEmail.isBlank() || confirmNewEmail == null || confirmNewEmail.isBlank()) {
             throw new IllegalArgumentException("New email address and confirmation email address are required.");
@@ -570,10 +622,18 @@ public class AdminAuthService {
     }
 
     private AdminUserResponse mapToUserResponse(AdminUserEntity user, Set<String> roleCodes) {
+        String agencyName = user.getAgencyId() != null
+            ? agencyRepository.findById(user.getAgencyId()).map(AgencyEntity::getName).orElse(null)
+            : null;
+
+        String stationName = user.getStationId() != null
+            ? stationRepository.findById(user.getStationId()).map(StationEntity::getName).orElse(null)
+            : null;
+
         return new AdminUserResponse(
             user.getId(), user.getEmail(), user.getFirstName(), user.getLastName(), user.getPhoneNumber(),
-            user.getAgencyId(), null, user.getRegion(), user.getStationId(), null, user.isActive(), user.isLocked(),
-            user.isMustChangePassword(), user.isTotpEnabled(), user.getLastLoginAt(), roleCodes
+            user.getAgencyId(), agencyName, user.getRegion(), user.getStationId(), stationName, user.getPriorityLevel(),
+            user.isActive(), user.isLocked(), user.isMustChangePassword(), user.isTotpEnabled(), user.getLastLoginAt(), roleCodes
         );
     }
 

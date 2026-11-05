@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   AppBar,
   Avatar,
+  Badge,
   Box,
   Button,
   Chip,
@@ -51,11 +52,16 @@ import GpsFixedIcon from '@mui/icons-material/GpsFixed';
 import SecurityIcon from '@mui/icons-material/Security';
 import StorageIcon from '@mui/icons-material/Storage';
 import MemoryIcon from '@mui/icons-material/Memory';
+import NotificationsIcon from '@mui/icons-material/Notifications';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import DoneAllIcon from '@mui/icons-material/DoneAll';
+import CloseIcon from '@mui/icons-material/Close';
+import LaunchIcon from '@mui/icons-material/Launch';
 import { useLocation, useNavigate, Outlet } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/auth/useAuthStore';
 import { useIdleTimeout } from '@/auth/useIdleTimeout';
-import { authApi } from '@/api/authApi';
+import { authApi, StaffNotificationItem } from '@/api/authApi';
 import { reportApi } from '@/api/reportApi';
 import { adminRequestApi } from '@/api/adminRequestApi';
 
@@ -76,17 +82,25 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ toggleTheme, currentMo
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [notifAnchorEl, setNotifAnchorEl] = useState<null | HTMLElement>(null);
+
+  // Notification Detail Modal States
+  const [selectedNotif, setSelectedNotif] = useState<StaffNotificationItem | null>(null);
+  const [notifDetailOpen, setNotifDetailOpen] = useState(false);
 
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { user, roles, logout, hasPermission, hasRole } = useAuthStore();
   const { showWarning, handleStaySignedIn, handleSignOut } = useIdleTimeout();
+  const isSysAdmin = hasRole('SYSTEM_ADMIN');
 
   // Treats realtime incident events as invalidation signals and refetches the authoritative unread count from the backend.
   const { data: unreadData } = useQuery({
     queryKey: ['unreadIncidentCount'],
     queryFn: reportApi.getUnreadCount,
     refetchInterval: 10000,
+    enabled: hasPermission('REPORT_READ'),
   });
 
   const { data: requestSummary } = useQuery({
@@ -96,8 +110,43 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ toggleTheme, currentMo
     enabled: hasPermission('ADMIN_USER_READ'),
   });
 
+  const { data: notifications = [] } = useQuery({
+    queryKey: ['staffNotifications'],
+    queryFn: authApi.getNotifications,
+    refetchInterval: 10000,
+  });
+
   const unreadCount = unreadData?.unreadCount || 0;
   const pendingAdminRequestsCount = requestSummary?.totalPendingCount || 0;
+  const unreadNotifCount = notifications.filter((n) => !n.readAt && !n.readState).length;
+
+  const markNotifReadMutation = useMutation({
+    mutationFn: (id: string) => authApi.markNotificationRead(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['staffNotifications'] });
+    },
+  });
+
+  const markAllReadMutation = useMutation({
+    mutationFn: authApi.markAllNotificationsRead,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['staffNotifications'] });
+    },
+  });
+
+  const deleteNotifMutation = useMutation({
+    mutationFn: (id: string) => authApi.deleteNotification(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['staffNotifications'] });
+    },
+  });
+
+  const clearReadNotifsMutation = useMutation({
+    mutationFn: authApi.deleteAllReadNotifications,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['staffNotifications'] });
+    },
+  });
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -152,6 +201,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ toggleTheme, currentMo
       subheader: 'OVERVIEW',
       items: [
         { label: 'Dashboard', icon: <DashboardIcon fontSize="small" />, path: '/', permission: 'REPORT_READ' },
+        { label: 'My Requests', icon: <AssignmentIcon fontSize="small" />, path: '/my-requests', permission: '' },
       ],
     },
     {
@@ -171,7 +221,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ toggleTheme, currentMo
       subheader: 'INFRASTRUCTURE',
       items: [
         { label: 'Backup & Recovery', icon: <StorageIcon fontSize="small" />, path: '/backups', permission: 'BACKUP_READ' },
-        { label: 'Cache Management', icon: <MemoryIcon fontSize="small" />, path: '/cache-management', permission: 'SYSTEM_SETTINGS_MANAGE' },
+        { label: 'Cache Management', icon: <MemoryIcon fontSize="small" />, path: '/cache-management', permission: 'SYSTEM_SETTINGS_MANAGE', sysAdminOnly: true },
       ],
     },
     {
@@ -193,7 +243,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ toggleTheme, currentMo
     },
     {
       subheader: 'SYSTEM',
-      items: [{ label: 'System Settings', icon: <SettingsIcon fontSize="small" />, path: '/settings', permission: 'SYSTEM_SETTINGS_MANAGE' }],
+      items: [{ label: 'System Settings', icon: <SettingsIcon fontSize="small" />, path: '/settings', permission: 'SYSTEM_SETTINGS_MANAGE', sysAdminOnly: true }],
     },
   ];
 
@@ -352,7 +402,10 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ toggleTheme, currentMo
         }}
       >
         {menuSections.map((section) => {
-          const visibleItems = section.items.filter((item) => hasPermission(item.permission));
+          const visibleItems = section.items.filter((item) => {
+            if ((item as any).sysAdminOnly && !isSysAdmin) return false;
+            return !item.permission || hasPermission(item.permission);
+          });
           if (visibleItems.length === 0) return null;
 
           return (
@@ -507,6 +560,95 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ toggleTheme, currentMo
           </Typography>
 
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <IconButton onClick={(e) => setNotifAnchorEl(e.currentTarget)} color="inherit">
+              <Badge badgeContent={unreadNotifCount} color="error">
+                <NotificationsIcon />
+              </Badge>
+            </IconButton>
+
+            {/* Notification Dropdown Menu */}
+            <Menu
+              anchorEl={notifAnchorEl}
+              open={Boolean(notifAnchorEl)}
+              onClose={() => setNotifAnchorEl(null)}
+              PaperProps={{ sx: { width: 360, maxHeight: 450 } }}
+            >
+              <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="subtitle1" fontWeight="bold">Notifications</Typography>
+                <Box sx={{ display: 'flex', gap: 0.5 }}>
+                  {unreadNotifCount > 0 && (
+                    <Tooltip title="Mark All as Read">
+                      <IconButton size="small" onClick={() => markAllReadMutation.mutate()}>
+                        <DoneAllIcon fontSize="small" color="primary" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                  {notifications.some((n) => Boolean(n.readAt) || n.readState) && (
+                    <Tooltip title="Clear Read Notifications">
+                      <IconButton size="small" onClick={() => clearReadNotifsMutation.mutate()}>
+                        <DeleteOutlineIcon fontSize="small" color="action" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                </Box>
+              </Box>
+              <Divider />
+
+              {notifications.map((n) => {
+                const isUnread = !n.readAt && !n.readState;
+
+                return (
+                  <MenuItem
+                    key={n.id}
+                    onClick={() => {
+                      if (isUnread) {
+                        markNotifReadMutation.mutate(n.id);
+                      }
+                      setSelectedNotif(n);
+                      setNotifDetailOpen(true);
+                    }}
+                    sx={{
+                      bgcolor: isUnread ? 'action.hover' : 'transparent',
+                      display: 'flex',
+                      justify: 'space-between',
+                      alignItems: 'center',
+                      py: 1.5,
+                      borderLeft: isUnread ? '3px solid #0066CC' : '3px solid transparent',
+                    }}
+                  >
+                    <Box sx={{ flexGrow: 1, pr: 1, overflow: 'hidden' }}>
+                      <Typography variant="body2" fontWeight={isUnread ? 'bold' : '500'} noWrap>
+                        {n.title}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                        {n.message || n.body}
+                      </Typography>
+                      <Typography variant="caption" color="primary" sx={{ fontSize: '0.65rem', mt: 0.5, display: 'block' }}>
+                        {new Date(n.createdAt).toLocaleString()}
+                      </Typography>
+                    </Box>
+
+                    <IconButton
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteNotifMutation.mutate(n.id);
+                      }}
+                      title="Delete Notification"
+                    >
+                      <DeleteOutlineIcon fontSize="small" />
+                    </IconButton>
+                  </MenuItem>
+                );
+              })}
+
+              {notifications.length === 0 && (
+                <Box sx={{ p: 3, textAlign: 'center' }}>
+                  <Typography variant="body2" color="text.secondary">No notifications available.</Typography>
+                </Box>
+              )}
+            </Menu>
+
             <IconButton onClick={toggleTheme} color="inherit">
               {currentMode === 'dark' ? <Brightness7Icon /> : <Brightness4Icon />}
             </IconButton>
@@ -539,10 +681,12 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ toggleTheme, currentMo
                 <ListItemIcon><AccountCircleIcon fontSize="small" /></ListItemIcon>
                 My Profile
               </MenuItem>
-              <MenuItem onClick={() => { handleProfileMenuClose(); navigate('/settings'); }}>
-                <ListItemIcon><SettingsIcon fontSize="small" /></ListItemIcon>
-                Settings
-              </MenuItem>
+              {isSysAdmin && (
+                <MenuItem onClick={() => { handleProfileMenuClose(); navigate('/settings'); }}>
+                  <ListItemIcon><SettingsIcon fontSize="small" /></ListItemIcon>
+                  Settings
+                </MenuItem>
+              )}
               <Divider />
               <MenuItem onClick={handleLogout} sx={{ color: 'error.main' }}>
                 <ListItemIcon><LogoutIcon fontSize="small" color="error" /></ListItemIcon>
@@ -592,6 +736,52 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ toggleTheme, currentMo
       >
         <Outlet />
       </Box>
+
+      {/* Notification Detail Dialog */}
+      <Dialog open={notifDetailOpen} onClose={() => setNotifDetailOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 'bold' }}>
+          <span>Notification Detail</span>
+          <IconButton onClick={() => setNotifDetailOpen(false)} size="small">
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {selectedNotif && (
+            <Box>
+              <Typography variant="h6" fontWeight="bold" gutterBottom>
+                {selectedNotif.title}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" paragraph>
+                {selectedNotif.message || selectedNotif.body}
+              </Typography>
+              <Divider sx={{ my: 1.5 }} />
+              <Typography variant="caption" color="text.secondary" display="block">
+                Received: {new Date(selectedNotif.createdAt).toLocaleString()}
+              </Typography>
+              <Typography variant="caption" color="primary" display="block">
+                Status: {selectedNotif.readAt || selectedNotif.readState ? 'Read' : 'Unread'}
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setNotifDetailOpen(false)}>Close</Button>
+          {selectedNotif?.actionUrl && (
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={<LaunchIcon />}
+              onClick={() => {
+                setNotifDetailOpen(false);
+                setNotifAnchorEl(null);
+                navigate(selectedNotif.actionUrl!);
+              }}
+            >
+              View Request
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
 
       {/* 1-Hour Inactivity Session Warning Dialog */}
       <Dialog open={showWarning} onClose={handleStaySignedIn} maxWidth="xs" fullWidth>

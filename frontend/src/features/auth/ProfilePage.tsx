@@ -34,6 +34,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import SaveIcon from '@mui/icons-material/Save';
 import EditIcon from '@mui/icons-material/Edit';
 import HistoryIcon from '@mui/icons-material/History';
+import PrintIcon from '@mui/icons-material/Print';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -41,6 +42,7 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { QRCodeSVG } from 'qrcode.react';
 import { useAuthStore } from '@/auth/useAuthStore';
 import { authApi } from '@/api/authApi';
+import { userRequestApi } from '@/api/userRequestApi';
 
 const profileSchema = z.object({
   firstName: z.string().min(1, 'First name is required'),
@@ -77,6 +79,22 @@ export const ProfilePage: React.FC = () => {
   const [requestedEmail, setRequestedEmail] = useState('');
   const [emailChangeReason, setEmailChangeReason] = useState('');
 
+  // 2FA Recovery Request Modal States
+  const [mfaRequestModalOpen, setMfaRequestModalOpen] = useState(false);
+  const [mfaReason, setMfaReason] = useState('');
+  const [collectModalOpen, setCollectModalOpen] = useState(false);
+  const [collectPassword, setCollectPassword] = useState('');
+  const [collectedCodes, setCollectedCodes] = useState<string[] | null>(null);
+  const [collectedCodesChecked, setCollectedCodesChecked] = useState(false);
+
+  // System Admin Direct 2-Step Recovery Code Generation States
+  const [sysAdminDirectRecoveryOpen, setSysAdminDirectRecoveryOpen] = useState(false);
+  const [sysAdminRecoveryStep, setSysAdminRecoveryStep] = useState<1 | 2 | 3>(1);
+  const [sysAdminRecoveryPassword, setSysAdminRecoveryPassword] = useState('');
+  const [sysAdminRecoveryToken, setSysAdminRecoveryToken] = useState('');
+  const [sysAdminGeneratedCodes, setSysAdminGeneratedCodes] = useState<string[] | null>(null);
+  const [sysAdminCodesChecked, setSysAdminCodesChecked] = useState(false);
+
   // System Admin 2-Step Direct Email Change Modal States
   const [sysAdminDirectEmailOpen, setSysAdminDirectEmailOpen] = useState(false);
   const [directStep, setDirectStep] = useState<1 | 2>(1);
@@ -107,6 +125,19 @@ export const ProfilePage: React.FC = () => {
     queryKey: ['emailHistory'],
     queryFn: authApi.getEmailHistory,
   });
+
+  const { data: userRequests, refetch: refetchUserRequests } = useQuery({
+    queryKey: ['myUserRequests'],
+    queryFn: userRequestApi.getRequests,
+  });
+
+  const activeRecoveryRequest = (userRequests || [])
+    .filter((r) => r.targetUserId === user?.id || r.requestedBy === user?.id)
+    .find(
+      (r) =>
+        r.requestType === 'MFA_RECOVERY_CODE_REISSUE' &&
+        (r.status.startsWith('PENDING') || r.status === 'APPROVED_AWAITING_COLLECTION')
+    );
 
   const {
     register: registerProfile,
@@ -168,6 +199,59 @@ export const ProfilePage: React.FC = () => {
     },
     onError: (err: any) => {
       setErrorMessage(err.response?.data?.message || 'Failed to submit email change request.');
+    },
+  });
+
+  const mfaRecoveryRequestMutation = useMutation({
+    mutationFn: () => userRequestApi.submitRecoveryRequest(mfaReason),
+    onSuccess: () => {
+      setMfaRequestModalOpen(false);
+      setMfaReason('');
+      refetchUserRequests();
+      setToastMessage('2FA Recovery Code request submitted.');
+    },
+    onError: (err: any) => {
+      setErrorMessage(err.response?.data?.message || 'Failed to submit 2FA recovery request.');
+    },
+  });
+
+  const collectRecoveryCodesMutation = useMutation({
+    mutationFn: () =>
+      activeRecoveryRequest
+        ? userRequestApi.collectRecoveryCodes(activeRecoveryRequest.id, collectPassword)
+        : Promise.reject('No active recovery request found'),
+    onSuccess: (codes) => {
+      setCollectedCodes(codes);
+      setCollectPassword('');
+      refetchUserRequests();
+      setToastMessage('Newly re-issued 2FA recovery codes collected successfully.');
+    },
+    onError: (err: any) => {
+      setErrorMessage(err.response?.data?.message || 'Current password is incorrect.');
+    },
+  });
+
+  const sysAdminVerifyPasswordMutation = useMutation({
+    mutationFn: () => authApi.verifyPasswordForEmailChange(sysAdminRecoveryPassword),
+    onSuccess: (data) => {
+      setSysAdminRecoveryToken(data.verificationToken);
+      setSysAdminRecoveryStep(2);
+      setErrorMessage(null);
+    },
+    onError: (err: any) => {
+      setErrorMessage(err.response?.data?.message || 'Current password is incorrect.');
+    },
+  });
+
+  const sysAdminGenerateCodesMutation = useMutation({
+    mutationFn: () => authApi.generateRecoveryCodesDirect({ verificationToken: sysAdminRecoveryToken }),
+    onSuccess: (codes) => {
+      setSysAdminGeneratedCodes(codes);
+      setSysAdminRecoveryStep(3);
+      setToastMessage('System Admin replacement 2FA recovery codes generated successfully.');
+    },
+    onError: (err: any) => {
+      setErrorMessage(err.response?.data?.message || 'Failed to generate replacement recovery codes.');
     },
   });
 
@@ -481,36 +565,94 @@ export const ProfilePage: React.FC = () => {
                 />
               </Box>
 
-              {user?.totpEnabled ? (
-                <Box sx={{ display: 'flex', gap: 1 }}>
+              {activeRecoveryRequest && (
+                <Box sx={{ mb: 2 }}>
+                  {activeRecoveryRequest.status === 'PENDING_AGENCY_VERIFICATION' && (
+                    <Alert severity="warning">
+                      Your 2FA recovery code request is awaiting verification from your Agency Administrator.
+                    </Alert>
+                  )}
+                  {activeRecoveryRequest.status === 'PENDING_SYSTEM_APPROVAL' && (
+                    <Alert severity="warning">
+                      Your 2FA recovery code request has been verified and is awaiting final approval from System Administration.
+                    </Alert>
+                  )}
+                  {activeRecoveryRequest.status === 'APPROVED_AWAITING_COLLECTION' && (
+                    <Alert
+                      severity="success"
+                      action={
+                        <Button color="inherit" size="small" sx={{ fontWeight: 'bold' }} onClick={() => setCollectModalOpen(true)}>
+                          Collect Codes
+                        </Button>
+                      }
+                    >
+                      Your 2FA recovery code request has been approved! Click to collect your new recovery codes.
+                    </Alert>
+                  )}
+                </Box>
+              )}
+
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                {user?.totpEnabled ? (
+                  <>
+                    <Button
+                      variant="outlined"
+                      color="warning"
+                      size="small"
+                      onClick={startTotpSetup}
+                    >
+                      Reset Authenticator
+                    </Button>
+
+                    {isSysAdmin ? (
+                      <Button
+                        variant="contained"
+                        color="primary"
+                        size="small"
+                        startIcon={<KeyIcon />}
+                        onClick={() => {
+                          setSysAdminRecoveryStep(1);
+                          setSysAdminRecoveryPassword('');
+                          setSysAdminGeneratedCodes(null);
+                          setSysAdminDirectRecoveryOpen(true);
+                        }}
+                      >
+                        Generate Replacement Recovery Codes
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outlined"
+                        color="primary"
+                        size="small"
+                        startIcon={<KeyIcon />}
+                        disabled={Boolean(activeRecoveryRequest)}
+                        onClick={() => setMfaRequestModalOpen(true)}
+                      >
+                        Request New Recovery Codes
+                      </Button>
+                    )}
+
+                    <Button
+                      variant="outlined"
+                      color="error"
+                      size="small"
+                      onClick={() => setDisableTotpOpen(true)}
+                    >
+                      Disable 2FA
+                    </Button>
+                  </>
+                ) : (
                   <Button
-                    variant="outlined"
-                    color="warning"
+                    variant="contained"
+                    color="primary"
                     size="small"
+                    startIcon={<QrCodeIcon />}
                     onClick={startTotpSetup}
                   >
-                    Reset Authenticator
+                    Set Up Authenticator
                   </Button>
-                  <Button
-                    variant="outlined"
-                    color="error"
-                    size="small"
-                    onClick={() => setDisableTotpOpen(true)}
-                  >
-                    Disable 2FA
-                  </Button>
-                </Box>
-              ) : (
-                <Button
-                  variant="contained"
-                  color="primary"
-                  size="small"
-                  startIcon={<QrCodeIcon />}
-                  onClick={startTotpSetup}
-                >
-                  Set Up Authenticator
-                </Button>
-              )}
+                )}
+              </Box>
             </CardContent>
           </Card>
         </Grid>
@@ -673,6 +815,267 @@ export const ProfilePage: React.FC = () => {
           >
             {emailRequestMutation.isPending ? 'Submitting...' : 'Submit Request'}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Request 2FA Recovery Codes Modal */}
+      <Dialog open={mfaRequestModalOpen} onClose={() => setMfaRequestModalOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle fontWeight="bold">Request New 2FA Recovery Codes</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Re-issuance of 2FA recovery codes follows an audited two-stage approval workflow (Agency Verification → System Admin Approval).
+          </Typography>
+
+          <TextField
+            fullWidth
+            multiline
+            rows={3}
+            label="Reason for Request"
+            placeholder="e.g. Lost recovery codes printout during device change..."
+            value={mfaReason}
+            onChange={(e) => setMfaReason(e.target.value)}
+            margin="normal"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setMfaRequestModalOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="primary"
+            disabled={mfaRecoveryRequestMutation.isPending || !mfaReason.trim()}
+            onClick={() => mfaRecoveryRequestMutation.mutate()}
+          >
+            {mfaRecoveryRequestMutation.isPending ? 'Submitting...' : 'Submit Request'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* System Admin Direct 2-Step Recovery Code Generation Modal */}
+      <Dialog open={sysAdminDirectRecoveryOpen} onClose={() => setSysAdminDirectRecoveryOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle fontWeight="bold">
+          {sysAdminRecoveryStep === 1 ? 'Verify Your Identity' : sysAdminRecoveryStep === 2 ? 'Generate Replacement Recovery Codes?' : 'YOUR NEW RECOVERY CODES'}
+        </DialogTitle>
+        <DialogContent>
+          {sysAdminRecoveryStep === 1 && (
+            <Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Confirm your current password before generating replacement recovery codes.
+              </Typography>
+              <TextField
+                fullWidth
+                size="small"
+                label="Current Password"
+                type="password"
+                value={sysAdminRecoveryPassword}
+                onChange={(e) => setSysAdminRecoveryPassword(e.target.value)}
+                margin="normal"
+              />
+            </Box>
+          )}
+
+          {sysAdminRecoveryStep === 2 && (
+            <Box>
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                Generating a new set of recovery codes will immediately invalidate your previous recovery codes once replacement completes.
+              </Alert>
+              <Typography variant="body2" color="text.secondary">
+                Are you sure you want to generate a new set of 10 single-use recovery codes?
+              </Typography>
+            </Box>
+          )}
+
+          {sysAdminRecoveryStep === 3 && sysAdminGeneratedCodes && (
+            <Box>
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                These recovery codes will be displayed <strong>only once</strong>. Store them in a safe offline location.
+              </Alert>
+              <Box sx={{ p: 2.5, bgcolor: '#FFFFFF', borderRadius: 3, border: '1px solid #E2E8F0', mb: 2 }}>
+                <Grid container spacing={1.5}>
+                  {sysAdminGeneratedCodes.map((code, idx) => (
+                    <Grid item xs={6} key={idx}>
+                      <Typography variant="body2" fontWeight="bold" sx={{ fontFamily: 'monospace', letterSpacing: '0.08em' }}>
+                        {code}
+                      </Typography>
+                    </Grid>
+                  ))}
+                </Grid>
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<ContentCopyIcon />}
+                  onClick={() => {
+                    navigator.clipboard.writeText(sysAdminGeneratedCodes.join('\n'));
+                    setToastMessage('Recovery codes copied to clipboard!');
+                  }}
+                >
+                  Copy Codes
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<PrintIcon />}
+                  onClick={() => window.print()}
+                >
+                  Print Codes
+                </Button>
+              </Box>
+              <FormControlLabel
+                control={<Checkbox checked={sysAdminCodesChecked} onChange={(e) => setSysAdminCodesChecked(e.target.checked)} />}
+                label="I Have Saved My Codes"
+              />
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          {sysAdminRecoveryStep === 1 && (
+            <>
+              <Button onClick={() => setSysAdminDirectRecoveryOpen(false)}>Cancel</Button>
+              <Button
+                variant="contained"
+                color="primary"
+                disabled={sysAdminVerifyPasswordMutation.isPending || !sysAdminRecoveryPassword}
+                onClick={() => sysAdminVerifyPasswordMutation.mutate()}
+              >
+                {sysAdminVerifyPasswordMutation.isPending ? 'Verifying...' : 'Verify Password'}
+              </Button>
+            </>
+          )}
+
+          {sysAdminRecoveryStep === 2 && (
+            <>
+              <Button onClick={() => setSysAdminDirectRecoveryOpen(false)}>Cancel</Button>
+              <Button
+                variant="contained"
+                color="primary"
+                disabled={sysAdminGenerateCodesMutation.isPending}
+                onClick={() => sysAdminGenerateCodesMutation.mutate()}
+              >
+                {sysAdminGenerateCodesMutation.isPending ? 'Generating...' : 'Generate Recovery Codes'}
+              </Button>
+            </>
+          )}
+
+          {sysAdminRecoveryStep === 3 && (
+            <Button
+              variant="contained"
+              color="primary"
+              disabled={!sysAdminCodesChecked}
+              onClick={() => {
+                setSysAdminDirectRecoveryOpen(false);
+                setSysAdminRecoveryStep(1);
+                setSysAdminGeneratedCodes(null);
+                setSysAdminCodesChecked(false);
+              }}
+            >
+              Done
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      {/* Collect 2FA Recovery Codes Modal */}
+      <Dialog open={collectModalOpen} onClose={() => setCollectModalOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle fontWeight="bold">
+          {collectedCodes ? 'Your New 2FA Recovery Codes' : 'Secure Recovery Code Collection'}
+        </DialogTitle>
+        <DialogContent>
+          {!collectedCodes ? (
+            <Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Your request has been approved by System Administration. Confirm your current password to collect your new single-use recovery codes.
+              </Typography>
+
+              <TextField
+                fullWidth
+                size="small"
+                label="Current Password"
+                type="password"
+                value={collectPassword}
+                onChange={(e) => setCollectPassword(e.target.value)}
+                margin="normal"
+              />
+            </Box>
+          ) : (
+            <Box>
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                These recovery codes will be displayed <strong>only once</strong>. Store them in a safe offline location.
+              </Alert>
+
+              <Box sx={{ p: 2.5, bgcolor: '#FFFFFF', borderRadius: 3, border: '1px solid #E2E8F0', mb: 2 }}>
+                <Grid container spacing={1.5}>
+                  {collectedCodes.map((code, idx) => (
+                    <Grid item xs={6} key={idx}>
+                      <Typography variant="body2" fontWeight="bold" sx={{ fontFamily: 'monospace', letterSpacing: '0.08em' }}>
+                        {code}
+                      </Typography>
+                    </Grid>
+                  ))}
+                </Grid>
+              </Box>
+
+              <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<ContentCopyIcon />}
+                  onClick={() => {
+                    navigator.clipboard.writeText(collectedCodes.join('\n'));
+                    setToastMessage('Recovery codes copied to clipboard!');
+                  }}
+                >
+                  Copy Codes
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<PrintIcon />}
+                  onClick={() => window.print()}
+                >
+                  Print Codes
+                </Button>
+              </Box>
+
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={collectedCodesChecked}
+                    onChange={(e) => setCollectedCodesChecked(e.target.checked)}
+                  />
+                }
+                label="I have safely stored my new recovery codes offline."
+              />
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          {!collectedCodes ? (
+            <>
+              <Button onClick={() => setCollectModalOpen(false)}>Cancel</Button>
+              <Button
+                variant="contained"
+                color="success"
+                disabled={collectRecoveryCodesMutation.isPending || !collectPassword}
+                onClick={() => collectRecoveryCodesMutation.mutate()}
+              >
+                {collectRecoveryCodesMutation.isPending ? 'Verifying...' : 'Verify & Collect Codes'}
+              </Button>
+            </>
+          ) : (
+            <Button
+              variant="contained"
+              color="primary"
+              disabled={!collectedCodesChecked}
+              onClick={() => {
+                setCollectModalOpen(false);
+                setCollectedCodes(null);
+                setCollectedCodesChecked(false);
+              }}
+            >
+              Done
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
 

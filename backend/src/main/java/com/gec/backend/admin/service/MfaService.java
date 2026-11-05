@@ -238,7 +238,8 @@ public class MfaService {
         }
     }
 
-    private List<String> generateAndSaveRecoveryCodes(String userType, UUID userId) {
+    @Transactional
+    public List<String> generateAndSaveRecoveryCodes(String userType, UUID userId) {
         recoveryCodeRepository.deleteByUserId(userId);
 
         List<String> plaintextCodes = new ArrayList<>();

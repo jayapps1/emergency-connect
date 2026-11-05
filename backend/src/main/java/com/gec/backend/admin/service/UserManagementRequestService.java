@@ -13,6 +13,7 @@ import com.gec.backend.admin.security.AdminScopeService;
 import com.gec.backend.agency.entity.AgencyEntity;
 import com.gec.backend.agency.repository.AgencyRepository;
 import com.gec.backend.common.exception.ResourceNotFoundException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -60,6 +61,24 @@ public class UserManagementRequestService {
             UUID agencyId = scopeService.getCurrentPrincipal().getAgencyId();
             return requestRepository.findByAgencyIdOrderByCreatedAtDesc(agencyId).stream().map(this::mapToResponse).toList();
         }
+    }
+
+    public List<UserManagementRequestResponse> getMyRequests(UUID userId) {
+        return requestRepository.findAllByOrderByCreatedAtDesc().stream()
+            .filter(r -> userId.equals(r.getTargetUserId()) || userId.equals(r.getRequestedBy()))
+            .map(this::mapToResponse)
+            .toList();
+    }
+
+    public UserManagementRequestResponse getMyRequestById(UUID requestId, UUID userId) {
+        UserManagementRequestEntity entity = requestRepository.findById(requestId)
+            .orElseThrow(() -> new ResourceNotFoundException("Request not found: " + requestId));
+
+        if (!userId.equals(entity.getTargetUserId()) && !userId.equals(entity.getRequestedBy())) {
+            throw new AccessDeniedException("Access denied: Request does not belong to user.");
+        }
+
+        return mapToResponse(entity);
     }
 
     @Transactional
@@ -198,7 +217,7 @@ public class UserManagementRequestService {
         return null;
     }
 
-    private UserManagementRequestResponse mapToResponse(UserManagementRequestEntity entity) {
+    public UserManagementRequestResponse mapToResponse(UserManagementRequestEntity entity) {
         AdminUserEntity targetUser = userRepository.findById(entity.getTargetUserId()).orElse(null);
         String targetUserEmail = targetUser != null ? targetUser.getEmail() : "Unknown";
         String targetUserName = targetUser != null ? targetUser.getFirstName() + " " + targetUser.getLastName() : "Unknown";
@@ -221,6 +240,12 @@ public class UserManagementRequestService {
             entity.getReviewedBy(),
             entity.getReviewedAt(),
             entity.getRejectionReason(),
+            entity.getAgencyVerifiedBy(),
+            entity.getAgencyVerifiedAt(),
+            entity.getAgencyVerificationMethod(),
+            entity.getAgencyVerificationNotes(),
+            entity.getCollectionTokenExpiresAt(),
+            entity.getCollectedAt(),
             entity.getCreatedAt()
         );
     }

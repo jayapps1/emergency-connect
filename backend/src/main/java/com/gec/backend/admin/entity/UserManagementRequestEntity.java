@@ -42,6 +42,27 @@ public class UserManagementRequestEntity {
     @Column(name = "rejection_reason")
     private String rejectionReason;
 
+    @Column(name = "agency_verified_by")
+    private UUID agencyVerifiedBy;
+
+    @Column(name = "agency_verified_at")
+    private LocalDateTime agencyVerifiedAt;
+
+    @Column(name = "agency_verification_method", length = 100)
+    private String agencyVerificationMethod;
+
+    @Column(name = "agency_verification_notes")
+    private String agencyVerificationNotes;
+
+    @Column(name = "collection_token")
+    private String collectionToken;
+
+    @Column(name = "collection_token_expires_at")
+    private LocalDateTime collectionTokenExpiresAt;
+
+    @Column(name = "collected_at")
+    private LocalDateTime collectedAt;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 
@@ -82,6 +103,20 @@ public class UserManagementRequestEntity {
     public void setReviewedAt(LocalDateTime reviewedAt) { this.reviewedAt = reviewedAt; }
     public String getRejectionReason() { return rejectionReason; }
     public void setRejectionReason(String rejectionReason) { this.rejectionReason = rejectionReason; }
+    public UUID getAgencyVerifiedBy() { return agencyVerifiedBy; }
+    public void setAgencyVerifiedBy(UUID agencyVerifiedBy) { this.agencyVerifiedBy = agencyVerifiedBy; }
+    public LocalDateTime getAgencyVerifiedAt() { return agencyVerifiedAt; }
+    public void setAgencyVerifiedAt(LocalDateTime agencyVerifiedAt) { this.agencyVerifiedAt = agencyVerifiedAt; }
+    public String getAgencyVerificationMethod() { return agencyVerificationMethod; }
+    public void setAgencyVerificationMethod(String agencyVerificationMethod) { this.agencyVerificationMethod = agencyVerificationMethod; }
+    public String getAgencyVerificationNotes() { return agencyVerificationNotes; }
+    public void setAgencyVerificationNotes(String agencyVerificationNotes) { this.agencyVerificationNotes = agencyVerificationNotes; }
+    public String getCollectionToken() { return collectionToken; }
+    public void setCollectionToken(String collectionToken) { this.collectionToken = collectionToken; }
+    public LocalDateTime getCollectionTokenExpiresAt() { return collectionTokenExpiresAt; }
+    public void setCollectionTokenExpiresAt(LocalDateTime collectionTokenExpiresAt) { this.collectionTokenExpiresAt = collectionTokenExpiresAt; }
+    public LocalDateTime getCollectedAt() { return collectedAt; }
+    public void setCollectedAt(LocalDateTime collectedAt) { this.collectedAt = collectedAt; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }

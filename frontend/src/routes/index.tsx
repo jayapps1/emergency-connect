@@ -1,5 +1,5 @@
 import React from 'react';
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { ProfilePage } from '@/features/auth/ProfilePage';
 import { ForceChangePasswordPage } from '@/features/auth/ForceChangePasswordPage';
@@ -16,6 +16,7 @@ import { PublicUsersPage } from '@/features/user/PublicUsersPage';
 import { UserDetailPage } from '@/features/user/UserDetailPage';
 import { TemporaryCredentialsPage } from '@/features/credentials/TemporaryCredentialsPage';
 import { AdminRequestsPage } from '@/features/requests/AdminRequestsPage';
+import { MyRequestsPage } from '@/features/requests/MyRequestsPage';
 import { AuditLogsPage } from '@/features/audit/AuditLogsPage';
 import { IncidentCategoriesPage } from '@/features/categories/IncidentCategoriesPage';
 import { SafetyInformationPage } from '@/features/safety/SafetyInformationPage';
@@ -28,6 +29,35 @@ import { CacheManagementPage } from '@/features/settings/CacheManagementPage';
 import { AdminLayout } from '@/layouts/AdminLayout';
 import { ProtectedRoute } from '@/auth/ProtectedRoute';
 import { PermissionRoute } from '@/auth/PermissionRoute';
+import { useAuthStore } from '@/auth/useAuthStore';
+
+const RootLandingRoute: React.FC = () => {
+  const { hasPermission } = useAuthStore();
+
+  if (hasPermission('REPORT_READ')) {
+    return <DashboardPage />;
+  }
+  if (hasPermission('BACKUP_READ')) {
+    return <Navigate to="/backups" replace />;
+  }
+  if (hasPermission('AUDIT_LOG_READ')) {
+    return <Navigate to="/audit-logs" replace />;
+  }
+  if (hasPermission('ADMIN_USER_READ')) {
+    return <Navigate to="/users" replace />;
+  }
+  return <Navigate to="/profile" replace />;
+};
+
+const SysAdminPermissionRoute: React.FC<{ permission: string; children: React.ReactNode }> = ({ permission, children }) => {
+  const { hasPermission, hasRole } = useAuthStore();
+  const isSysAdmin = hasRole('SYSTEM_ADMIN');
+
+  if (!isSysAdmin || !hasPermission(permission)) {
+    return <Navigate to="/unauthorized" replace />;
+  }
+  return <>{children}</>;
+};
 
 export const createRouter = (toggleTheme: () => void, currentMode: 'light' | 'dark') =>
   createBrowserRouter([
@@ -51,15 +81,15 @@ export const createRouter = (toggleTheme: () => void, currentMode: 'light' | 'da
           children: [
             {
               path: '/',
-              element: (
-                <PermissionRoute permission="REPORT_READ">
-                  <DashboardPage />
-                </PermissionRoute>
-              ),
+              element: <RootLandingRoute />,
             },
             {
               path: '/profile',
               element: <ProfilePage />,
+            },
+            {
+              path: '/my-requests',
+              element: <MyRequestsPage />,
             },
             {
               path: '/appliances',
@@ -144,9 +174,9 @@ export const createRouter = (toggleTheme: () => void, currentMode: 'light' | 'da
             {
               path: '/cache-management',
               element: (
-                <PermissionRoute permission="SYSTEM_SETTINGS_MANAGE">
+                <SysAdminPermissionRoute permission="SYSTEM_SETTINGS_MANAGE">
                   <CacheManagementPage />
-                </PermissionRoute>
+                </SysAdminPermissionRoute>
               ),
             },
             {
@@ -224,9 +254,9 @@ export const createRouter = (toggleTheme: () => void, currentMode: 'light' | 'da
             {
               path: '/settings',
               element: (
-                <PermissionRoute permission="SYSTEM_SETTINGS_MANAGE">
+                <SysAdminPermissionRoute permission="SYSTEM_SETTINGS_MANAGE">
                   <SettingsPage />
-                </PermissionRoute>
+                </SysAdminPermissionRoute>
               ),
             },
           ],
